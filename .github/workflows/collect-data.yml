@@ -1,0 +1,73 @@
+name: Collect BTC 5m Price Data
+
+# Run every 6 hours: 00:00, 06:00, 12:00, 18:00 UTC
+# GitHub cron is approximate (can be delayed up to 15 min during high load)
+on:
+  schedule:
+    - cron: '0 */6 * * *'
+  # Allow manual runs from the GitHub UI
+  workflow_dispatch:
+
+# Prevent overlapping runs
+concurrency:
+  group: collect-data
+  cancel-in-progress: false
+
+# Required so the workflow can commit CSVs back to the repo
+permissions:
+  contents: write
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    # 6 hour GitHub limit; we cap at 5h50m to leave time for git push
+    timeout-minutes: 350
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run price collector (TEST: 2 windows = ~10 minutes)
+        run: |
+          python -m price_collector.main --windows 2
+        # Don't fail the whole job if collector crashes —
+        # we still want to commit whatever was collected
+        continue-on-error: true
+
+      - name: Commit and push collected CSVs
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Pull any new commits made while we were running
+          git pull --rebase origin main || true
+
+          # Stage only the new CSVs
+          git add price_collector/data/*.csv 2>/dev/null || true
+
+          # Check if there's anything to commit
+          if git diff --staged --quiet; then
+            echo "No new CSVs to commit."
+            exit 0
+          fi
+
+          # Count how many new CSVs
+          NEW_COUNT=$(git diff --staged --name-only | grep -c "^price_collector/data/" || echo "0")
+          DATE=$(date -u +"%Y-%m-%d %H:%M UTC")
+
+          git commit -m "Collect data: $NEW_COUNT new windows ($DATE)"
+          git push origin main
