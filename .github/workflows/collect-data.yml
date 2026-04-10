@@ -40,12 +40,12 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run price collector (TEST: 2 windows = ~10 minutes)
+      # Don't fail the whole job if collector crashes
+      # so we still commit whatever was collected
+      - name: Run price collector (TEST 2 windows ~10 minutes)
+        continue-on-error: true
         run: |
           python -m price_collector.main --windows 2
-        # Don't fail the whole job if collector crashes —
-        # we still want to commit whatever was collected
-        continue-on-error: true
 
       - name: Commit and push collected CSVs
         if: always()
