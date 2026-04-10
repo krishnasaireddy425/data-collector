@@ -13,9 +13,11 @@ concurrency:
   group: collect-data
   cancel-in-progress: false
 
-# Required so the workflow can commit CSVs back to the repo
+# contents: write — to commit CSVs back
+# actions: write  — to re-dispatch this workflow at the end (self-chaining)
 permissions:
   contents: write
+  actions: write
 
 jobs:
   collect:
@@ -42,10 +44,10 @@ jobs:
 
       # Don't fail the whole job if collector crashes
       # so we still commit whatever was collected
-      - name: Run price collector (TEST 2 windows ~10 minutes)
+      - name: Run price collector (60 windows ~5 hours)
         continue-on-error: true
         run: |
-          python -m price_collector.main --windows 2
+          python -m price_collector.main --windows 60
 
       - name: Commit and push collected CSVs
         if: always()
@@ -71,3 +73,12 @@ jobs:
 
           git commit -m "Collect data: $NEW_COUNT new windows ($DATE)"
           git push origin main
+
+      # Self-chain: trigger the next run immediately after this one finishes.
+      # The cron schedule above is kept as a safety net in case the chain breaks.
+      - name: Trigger next run
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run collect-data.yml --ref main
