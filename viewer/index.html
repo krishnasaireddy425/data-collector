@@ -341,14 +341,21 @@ function drawChart(canvas, ticks) {
   ctx.stroke();
 
   // BTC price line (right Y-axis)
+  // Anchor the Y-axis around btc_open so the line ALWAYS starts at the
+  // vertical center. The axis range is symmetric: btc_open ± max_dev * 1.1
+  // (where max_dev is the largest deviation from open across the window).
   const btcPrices = ticks.map(t => t.btc_price).filter(v => v != null);
   if (btcPrices.length > 0) {
-    const btcMin = Math.min(...btcPrices);
-    const btcMax = Math.max(...btcPrices);
-    const btcRange = btcMax - btcMin || 1;
-    const btcPad = btcRange * 0.1;
-    const btcLow = btcMin - btcPad;
-    const btcHigh = btcMax + btcPad;
+    const btcOpen = btcPrices[0];
+    let maxDev = 0;
+    for (const p of btcPrices) {
+      const dev = Math.abs(p - btcOpen);
+      if (dev > maxDev) maxDev = dev;
+    }
+    if (maxDev === 0) maxDev = 1; // avoid zero-range when BTC is flat
+    const halfRange = maxDev * 1.1;  // 10% padding
+    const btcLow = btcOpen - halfRange;
+    const btcHigh = btcOpen + halfRange;
     const toBtcY = (p) => pad.top + ((btcHigh - p) / (btcHigh - btcLow)) * ch;
 
     ctx.strokeStyle = "#e3b341";
