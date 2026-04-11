@@ -1,37 +1,37 @@
 {
   "60": {
-    "accuracy": 0.6042,
-    "n_samples": 283,
+    "accuracy": 0.6146,
+    "n_samples": 314,
     "n_features": 50
   },
   "90": {
-    "accuracy": 0.6184,
-    "n_samples": 283,
+    "accuracy": 0.6019,
+    "n_samples": 314,
     "n_features": 50
   },
   "120": {
-    "accuracy": 0.682,
-    "n_samples": 283,
+    "accuracy": 0.6783,
+    "n_samples": 314,
     "n_features": 50
   },
   "150": {
-    "accuracy": 0.7173,
-    "n_samples": 283,
+    "accuracy": 0.7357,
+    "n_samples": 314,
     "n_features": 50
   },
   "180": {
-    "accuracy": 0.7703,
-    "n_samples": 283,
+    "accuracy": 0.7643,
+    "n_samples": 314,
     "n_features": 50
   },
   "210": {
-    "accuracy": 0.8092,
-    "n_samples": 283,
+    "accuracy": 0.8089,
+    "n_samples": 314,
     "n_features": 50
   },
   "240": {
-    "accuracy": 0.8233,
-    "n_samples": 283,
+    "accuracy": 0.8439,
+    "n_samples": 314,
     "n_features": 50
   }
 }
