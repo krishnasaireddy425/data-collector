@@ -44,10 +44,23 @@ jobs:
 
       # Don't fail the whole job if collector crashes
       # so we still commit whatever was collected
+      # PYTHONUNBUFFERED=1 -> live log streaming (no buffering)
+      # SUPABASE_URL/KEY  -> paper trading decision logger
       - name: Run price collector (60 windows ~5 hours)
         continue-on-error: true
+        env:
+          PYTHONUNBUFFERED: "1"
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: |
-          python -m price_collector.main --windows 60
+          python -u -m price_collector.main --windows 60
+
+      # Rebuild the viewer index so the GitHub Pages viewer stays in sync
+      # with the freshly committed CSVs.
+      - name: Rebuild viewer index
+        if: always()
+        run: |
+          python3 viewer/build_index.py || true
 
       - name: Commit and push collected CSVs
         if: always()
@@ -58,8 +71,9 @@ jobs:
           # Pull any new commits made while we were running
           git pull --rebase origin main || true
 
-          # Stage only the new CSVs
+          # Stage new CSVs and the rebuilt viewer index
           git add price_collector/data/*.csv 2>/dev/null || true
+          git add viewer/index.json 2>/dev/null || true
 
           # Check if there's anything to commit
           if git diff --staged --quiet; then

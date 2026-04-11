@@ -1,3 +1,10 @@
 aiohttp
 certifi
 websockets
+
+# Paper trading (ML inference + Supabase logging)
+numpy
+pandas
+scikit-learn
+joblib
+supabase

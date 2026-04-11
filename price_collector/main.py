@@ -21,12 +21,27 @@ import aiohttp
 import certifi
 import websockets
 
+# Paper trading (1:1 mirror of prod_ml_strategy) — runs alongside data collection.
+# Imports are best-effort: if ml/ deps are missing, the collector still works.
+try:
+    from ml.prediction_engine import PredictionEngine
+    from ml.paper_strategy import PaperStrategy
+    from ml.decision_logger import DecisionLogger
+    PAPER_TRADING_AVAILABLE = True
+except Exception as _e:
+    PAPER_TRADING_AVAILABLE = False
+    print(f"  [PAPER] Paper trading disabled: {_e}")
+
 DATA_DIR = Path(__file__).parent / "data"
 GAMMA_API = "https://gamma-api.polymarket.com"
 CLOB_API = "https://clob.polymarket.com"
 CLOB_WS = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
 CHAINLINK_WS = "wss://ws-live-data.polymarket.com"
 CHAINLINK_PING_INTERVAL = 4  # seconds
+
+# Globals: one logger + one prediction engine per process (shared across windows).
+# These are created lazily in main() if PAPER_TRADING_AVAILABLE.
+DECISION_LOGGER = None
 
 
 def ssl_ctx():
@@ -470,6 +485,26 @@ async def record_market(market):
     cc_stop = asyncio.Event()
     cc_task = asyncio.create_task(chainlink_btc_listener(btc_state, cc_stop))
 
+    # ---------- Paper trading: one PaperStrategy instance per window ----------
+    # Each window gets its own PredictionEngine + PaperStrategy. They share the
+    # global DECISION_LOGGER which writes to Supabase on a background thread.
+    paper = None
+    btc_open_first = None
+    if PAPER_TRADING_AVAILABLE and DECISION_LOGGER is not None:
+        try:
+            engine = PredictionEngine()
+            paper = PaperStrategy(
+                slug=market.slug,
+                open_epoch=market.open_epoch,
+                close_epoch=market.close_epoch,
+                predictor=engine,
+                logger=DECISION_LOGGER,
+            )
+            print(f"  [PAPER] Strategy initialized for {market.slug}")
+        except Exception as e:
+            print(f"  [PAPER] Failed to init strategy for {market.slug}: {e}")
+            paper = None
+
     # Seed initial values from REST
     await seed_initial_state(market, state)
 
@@ -531,6 +566,25 @@ async def record_market(market):
                             state[f"{side}_ask"] = min(float(a["price"]) for a in asks)
                         market.write_tick("book", state, btc_state)
 
+                        # Feed the same tick into the paper strategy
+                        if paper is not None:
+                            elapsed = time.time() - market.open_epoch
+                            if 0 <= elapsed <= 300:
+                                btc_now = btc_state.get("price")
+                                if btc_open_first is None and btc_now:
+                                    btc_open_first = btc_now
+                                try:
+                                    paper.on_tick(
+                                        elapsed_sec=elapsed,
+                                        up_bid=state["up_bid"],
+                                        up_ask=state["up_ask"],
+                                        down_bid=state["down_bid"],
+                                        down_ask=state["down_ask"],
+                                        btc_price=btc_now,
+                                    )
+                                except Exception as pe:
+                                    print(f"  [PAPER] on_tick error: {pe}")
+
     except Exception as e:
         print(f"  WS error for {market.slug}: {e}")
     finally:
@@ -543,6 +597,21 @@ async def record_market(market):
         market.close_csv()
         print(f"  Recorded {market.tick_count} ticks for {market.slug}")
 
+        # ---------- Paper trading settlement ----------
+        if paper is not None:
+            try:
+                # Determine winner from the recorded CSV (Chainlink oracle data)
+                winner_str = get_winner_from_csv(market)
+                winner_norm = (winner_str or "unknown").lower()
+                btc_close = btc_state.get("price") or btc_open_first
+                paper.settle(
+                    btc_open=btc_open_first,
+                    btc_close=btc_close,
+                    winner=winner_norm,
+                )
+            except Exception as se:
+                print(f"  [PAPER] Settlement error for {market.slug}: {se}")
+
 
 async def main():
     parser = argparse.ArgumentParser(description="BTC 5m Price Tick Collector")
@@ -552,12 +621,23 @@ async def main():
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
+    # Initialize the global decision logger (Supabase) for paper trading.
+    # If SUPABASE_URL/SUPABASE_KEY are not set, logging is silently disabled.
+    global DECISION_LOGGER
+    if PAPER_TRADING_AVAILABLE:
+        try:
+            DECISION_LOGGER = DecisionLogger()
+        except Exception as e:
+            print(f"  [PAPER] Could not init DecisionLogger: {e}")
+            DECISION_LOGGER = None
+
     print("=" * 50)
     print("BTC 5m Price Tick Collector (Chainlink Oracle)")
     print("=" * 50)
     now_dt = datetime.now(timezone.utc)
     print(f"Start time: {now_dt.strftime('%Y-%m-%d %H:%M:%S UTC')}")
     print(f"Windows to record: {args.windows}")
+    print(f"Paper trading: {'ENABLED' if (DECISION_LOGGER and DECISION_LOGGER.enabled) else 'disabled'}")
 
     print("\nDiscovering upcoming BTC 5m markets...")
     markets = await discover_next_markets(args.windows)
@@ -612,6 +692,11 @@ async def main():
         print(f"  {m.slug}: {m.tick_count} ticks, winner={m.winner}")
         print(f"    {m.csv_path}")
     print("=" * 50)
+
+    # Drain the decision logger queue before exiting so all events get pushed.
+    if DECISION_LOGGER is not None and DECISION_LOGGER.enabled:
+        print("\nFlushing paper trading decisions to Supabase...")
+        DECISION_LOGGER.shutdown(timeout=20.0)
 
 
 if __name__ == "__main__":
