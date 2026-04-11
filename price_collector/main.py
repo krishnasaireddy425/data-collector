@@ -69,11 +69,14 @@ class MarketWindow:
     def open_csv(self):
         self.csv_file = open(self.csv_path, "w", newline="")
         self.csv_writer = csv.writer(self.csv_file)
+        # btc_oracle_ts: the millisecond Chainlink observation timestamp
+        # for the btc_price in this row. Used to detect stale rows in
+        # post-processing and to pick the boundary tick in get_winner.
         self.csv_writer.writerow([
             "timestamp", "elapsed_sec",
             "up_bid", "up_ask", "down_bid", "down_ask",
             "up_spread", "down_spread",
-            "btc_price",
+            "btc_price", "btc_oracle_ts",
         ])
         print(f"  CSV opened: {self.csv_path.name}")
 
@@ -81,11 +84,14 @@ class MarketWindow:
         now = time.time()
         elapsed = round(now - self.open_epoch, 3)
 
-        # Skip ticks outside 0-300s window
-        if elapsed < 0.5 or elapsed > 301.0:
+        # Capture from t=0.5 to t=303 — 3 extra seconds past the boundary
+        # to catch deviation ticks that arrive 1-2 seconds late.
+        if elapsed < 0.5 or elapsed > 303.0:
             return
 
-        # Rate limit: max 3 writes per second
+        # Rate limit: max 3 writes per second.
+        # Applies to both CLOB book events AND Chainlink ticks (Fix #1
+        # routes Chainlink ticks through this same path).
         if now - self._last_write < 0.333:
             return
         self._last_write = now
@@ -103,7 +109,7 @@ class MarketWindow:
             state["up_bid"], state["up_ask"],
             state["down_bid"], state["down_ask"],
             up_spread, down_spread,
-            btc.get("price"),
+            btc.get("price"), btc.get("oracle_ts"),
         ])
         self.csv_file.flush()
         self.tick_count += 1
@@ -289,42 +295,96 @@ async def discover_next_markets(count):
 
 def get_winner_from_csv(market):
     """Determine winner from recorded Chainlink oracle prices in CSV.
-    Reads first and last btc_price from the CSV — these are the exact
-    oracle prices Polymarket uses for settlement."""
+
+    Fix #6: pick the row whose btc_oracle_ts is closest to the open and
+    close boundary timestamps (instead of just first/last). This avoids
+    boundary deviation ticks (price spikes 1-2s after t=300) flipping the
+    winner. Falls back to first/last row if btc_oracle_ts column is missing
+    (older CSVs).
+
+    Fix #7: ties resolve to 'Up' (matches Polymarket's '>=' rule). There
+    is no 'Flat' outcome on-chain.
+    """
     try:
         import csv as csv_mod
+
+        open_ms = int(market.open_epoch * 1000)
+        close_ms = int(market.close_epoch * 1000)
+
         with open(market.csv_path, "r") as f:
             reader = csv_mod.reader(f)
             header = next(reader)
-            btc_col = header.index("btc_price")
+            try:
+                btc_col = header.index("btc_price")
+            except ValueError:
+                print(f"  No btc_price column in {market.slug}")
+                return "unknown"
+            try:
+                ts_col = header.index("btc_oracle_ts")
+                has_ts = True
+            except ValueError:
+                ts_col = None
+                has_ts = False
 
+            best_open = None   # (distance_ms, price)
+            best_close = None  # (distance_ms, price)
             first_price = None
             last_price = None
+
             for row in reader:
                 # Skip empty rows and comment rows
                 if not row or row[0].startswith("#"):
                     continue
                 try:
                     price = float(row[btc_col])
-                    if price > 0:
-                        if first_price is None:
-                            first_price = price
-                        last_price = price
                 except (ValueError, IndexError):
                     continue
+                if price <= 0:
+                    continue
 
-        if first_price is None or last_price is None:
+                # Track first/last for the fallback path
+                if first_price is None:
+                    first_price = price
+                last_price = price
+
+                if has_ts:
+                    try:
+                        ts = float(row[ts_col])
+                    except (ValueError, IndexError):
+                        continue
+                    if ts <= 0:
+                        continue
+                    od = abs(ts - open_ms)
+                    cd = abs(ts - close_ms)
+                    if best_open is None or od < best_open[0]:
+                        best_open = (od, price)
+                    if best_close is None or cd < best_close[0]:
+                        best_close = (cd, price)
+
+        # Prefer the boundary-closest tick if we have oracle timestamps
+        if has_ts and best_open is not None and best_close is not None:
+            open_price = best_open[1]
+            close_price = best_close[1]
+            print(
+                f"  Oracle: open=${open_price:,.2f} close=${close_price:,.2f} "
+                f"(open_dist={best_open[0]:.0f}ms "
+                f"close_dist={best_close[0]:.0f}ms)"
+            )
+        elif first_price is not None and last_price is not None:
+            # Fallback for older CSVs without btc_oracle_ts
+            open_price = first_price
+            close_price = last_price
+            print(f"  Oracle: open=${open_price:,.2f} close=${close_price:,.2f} "
+                  f"(no oracle_ts, fallback to first/last)")
+        else:
             print(f"  No BTC prices in CSV for {market.slug}")
             return "unknown"
 
-        print(f"  Oracle: open=${first_price:,.2f} close=${last_price:,.2f}")
-
-        if last_price > first_price:
+        # Fix #7: ties resolve to "Up" (matches Polymarket's >= rule)
+        if close_price >= open_price:
             return "Up"
-        elif last_price < first_price:
-            return "Down"
         else:
-            return "Flat"
+            return "Down"
     except Exception as e:
         print(f"  CSV winner check failed: {e}")
         return "unknown"
@@ -384,9 +444,15 @@ async def seed_initial_state(market, state):
 # --- END OLD ---
 
 
-async def chainlink_btc_listener(btc_state, stop_event):
+async def chainlink_btc_listener(btc_state, stop_event, on_tick=None):
     """Stream BTC/USD from Polymarket's Chainlink RTDS WebSocket.
-    This is the exact oracle price Polymarket resolves 5-min markets against."""
+    This is the exact oracle price Polymarket resolves 5-min markets against.
+
+    on_tick: optional callback called with the new btc price after every
+    fresh Chainlink update. Used by record_market() to trigger CSV writes
+    on Chainlink ticks (Fix #1) so we don't have to wait for a CLOB book
+    event to capture a fresh oracle price.
+    """
     ssl_context = ssl_ctx()
     print("  Chainlink BTC oracle feed starting...")
 
@@ -451,6 +517,14 @@ async def chainlink_btc_listener(btc_state, stop_event):
                         btc_state["price"] = round(price, 2)
                         if oracle_ts:
                             btc_state["oracle_ts"] = oracle_ts
+                        # Fix #1: notify the consumer that we have a fresh
+                        # tick so they can write a CSV row immediately
+                        # without waiting for a CLOB book event.
+                        if on_tick is not None:
+                            try:
+                                on_tick()
+                            except Exception as cb_err:
+                                print(f"  on_tick error: {cb_err}")
 
         except Exception as e:
             if stop_event.is_set():
@@ -481,9 +555,21 @@ async def record_market(market):
     # Shared BTC price state (updated by Chainlink oracle WS)
     btc_state = {"price": None, "oracle_ts": None}
 
+    # Fix #1: when a new Chainlink tick arrives, write a CSV row
+    # immediately using whatever the order book state currently holds.
+    # This guarantees every Chainlink update is captured (within the
+    # 333ms rate limit), instead of being lost when no CLOB event
+    # follows it.
+    def on_btc_tick():
+        if market.csv_writer is None:
+            return
+        market.write_tick("btc", state, btc_state)
+
     # Start Chainlink BTC/USD oracle feed in background
     cc_stop = asyncio.Event()
-    cc_task = asyncio.create_task(chainlink_btc_listener(btc_state, cc_stop))
+    cc_task = asyncio.create_task(
+        chainlink_btc_listener(btc_state, cc_stop, on_tick=on_btc_tick)
+    )
 
     # ---------- Paper trading: one PaperStrategy instance per window ----------
     # Each window gets its own PredictionEngine + PaperStrategy. They share the
