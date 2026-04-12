@@ -1,12 +1,22 @@
 """
-Train ML models on 90 CSV datasets and save for production use.
+Train ML models on CSV datasets and save for production use.
+
+Validation: Walk-forward (expanding window) cross-validation.
+  - Respects chronological order (no future data in training)
+  - Purge gap of 2 windows between train and test sets
+  - Reports honest out-of-sample accuracy
+
+Interpolation: Forward-fill only.
+  - Prevents within-window data leakage (no backward interpolation
+    from future ticks when computing features at time t)
+  - Matches the live prediction_engine.py behavior
 
 Outputs:
-  - analysis/models/rf_model_t{time}.joblib  (one per timepoint)
-  - analysis/models/feature_names_t{time}.json
-  - analysis/models/training_stats.json
+  - ml/models/rf_model_t{time}.joblib  (one per timepoint)
+  - ml/models/feature_names_t{time}.json
+  - ml/models/training_stats.json
 
-Usage: python3 analysis/train_model.py
+Usage: python3 ml/train_model.py
 """
 
 import glob
@@ -15,8 +25,7 @@ import os
 import warnings
 import numpy as np
 import pandas as pd
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
-from sklearn.model_selection import LeaveOneOut
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score
 import joblib
 
@@ -25,6 +34,11 @@ warnings.filterwarnings("ignore")
 DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "price_collector", "data")
 CSV_PATTERN = os.path.join(DATA_DIR, "btc-updown-5m-*.csv")
 MODEL_DIR = os.path.join(os.path.dirname(__file__), "models")
+
+# Walk-forward parameters
+INITIAL_TRAIN_PCT = 0.60   # first 60% of data is the minimum training set
+FOLD_SIZE = 50             # test set size per fold
+PURGE_GAP = 2              # skip 2 windows between train and test
 
 
 def load_all_windows():
@@ -57,7 +71,20 @@ def load_all_windows():
             df_r = df.set_index("elapsed_sec").sort_index()
             new_idx = np.arange(0, 301, 1.0)
             df_1s = df_r.reindex(df_r.index.union(new_idx)).sort_index()
-            df_1s = df_1s.interpolate(method="index", limit_direction="both")
+
+            # FIX: Forward-fill only, then back-fill for the very start.
+            # This prevents within-window data leakage: at any time t,
+            # the value is the LAST KNOWN value from t or before.
+            # Never uses future values (unlike the old interpolate with
+            # limit_direction="both" which could pull from t+1, t+2...).
+            # Matches what the live prediction_engine.py sees in production.
+            #
+            # OLD (LEAKED FUTURE DATA):
+            # df_1s = df_1s.interpolate(method="index", limit_direction="both")
+            #
+            # NEW (FORWARD-FILL ONLY):
+            df_1s = df_1s.ffill().bfill()
+
             df_1s = df_1s.loc[new_idx].reset_index()
             df_1s.rename(columns={"index": "elapsed_sec"}, inplace=True)
 
@@ -234,28 +261,71 @@ def build_dataset(windows, t):
 
 
 def train_and_evaluate(windows, timepoints):
-    """Train RF models at each timepoint, evaluate with LOO CV."""
+    """Train RF models at each timepoint with walk-forward validation.
+
+    Walk-forward (expanding window) cross-validation:
+      - Sort windows chronologically (already done by epoch)
+      - First 60% of data is the initial training set
+      - Test on the next 50 windows (with 2-window purge gap)
+      - Expand training set, repeat until end of data
+      - Pool all test predictions for final accuracy
+
+    The final production model is trained on ALL data (not just
+    the walk-forward training portion) for maximum signal.
+    """
     os.makedirs(MODEL_DIR, exist_ok=True)
     stats = {}
 
+    # Windows are sorted chronologically by epoch (from sorted glob)
+    n = len(windows)
+    initial_train_n = max(int(n * INITIAL_TRAIN_PCT), 100)
+
+    print(f"\nWalk-forward config:")
+    print(f"  Total windows:     {n}")
+    print(f"  Initial train:     {initial_train_n} ({INITIAL_TRAIN_PCT:.0%})")
+    print(f"  Fold size:         {FOLD_SIZE}")
+    print(f"  Purge gap:         {PURGE_GAP}")
+
+    if initial_train_n + PURGE_GAP + 1 >= n:
+        print(f"\n  WARNING: Not enough data for walk-forward validation.")
+        print(f"  Need at least {initial_train_n + PURGE_GAP + 1} windows, have {n}.")
+        print(f"  Will train models but skip validation.")
+
     for t in timepoints:
         print(f"\n--- Training at t={t}s ---")
-        X, y, feature_names = build_dataset(windows, t)
-        if X is None:
+
+        # Build features for ALL windows at this timepoint
+        X_all, y_all, feature_names = build_dataset(windows, t)
+        if X_all is None:
             print(f"  Skipped (no data)")
             continue
 
-        n = len(y)
-        print(f"  Samples: {n}, Features: {X.shape[1]}")
+        n_samples = len(y_all)
+        print(f"  Samples: {n_samples}, Features: {X_all.shape[1]}")
 
-        # LOO CV to estimate accuracy
-        loo = LeaveOneOut()
-        preds = np.zeros(n)
-        probas = np.zeros(n)
+        # ---- Walk-forward validation ----
+        wf_preds = []
+        wf_true = []
+        wf_probas = []
+        fold_num = 0
 
-        for train_idx, test_idx in loo.split(X):
-            X_train, X_test = X[train_idx], X[test_idx]
-            y_train, y_test = y[train_idx], y[test_idx]
+        cursor = initial_train_n
+        while cursor + PURGE_GAP < n_samples:
+            fold_num += 1
+            train_end = cursor
+            test_start = cursor + PURGE_GAP
+            test_end = min(test_start + FOLD_SIZE, n_samples)
+
+            if test_start >= n_samples:
+                break
+
+            X_train = X_all[:train_end]
+            y_train = y_all[:train_end]
+            X_test = X_all[test_start:test_end]
+            y_test = y_all[test_start:test_end]
+
+            if len(X_test) == 0:
+                break
 
             model = RandomForestClassifier(
                 n_estimators=200,
@@ -264,27 +334,54 @@ def train_and_evaluate(windows, timepoints):
                 random_state=42,
             )
             model.fit(X_train, y_train)
-            preds[test_idx] = model.predict(X_test)
-            probas[test_idx] = model.predict_proba(X_test)[:, 1]
 
-        acc = accuracy_score(y, preds)
-        print(f"  LOO accuracy: {acc:.1%}")
+            preds = model.predict(X_test)
+            probas = model.predict_proba(X_test)[:, 1]
 
-        # High confidence stats
-        for thresh in [0.60, 0.65, 0.70, 0.75]:
-            confident = np.abs(probas - 0.5) >= (thresh - 0.5)
-            if confident.sum() > 0:
-                cacc = accuracy_score(y[confident], preds[confident])
-                print(f"    conf>={thresh:.0%}: {cacc:.1%} on {confident.sum()}/{n}")
+            fold_acc = accuracy_score(y_test, preds)
+            print(f"    Fold {fold_num}: train={len(X_train)}, "
+                  f"gap={PURGE_GAP}, test={len(X_test)}, "
+                  f"acc={fold_acc:.1%}")
 
-        # Train final model on ALL data
+            wf_preds.extend(preds.tolist())
+            wf_true.extend(y_test.tolist())
+            wf_probas.extend(probas.tolist())
+
+            # Advance cursor to end of this test fold
+            cursor = test_end
+
+        # ---- Report walk-forward results ----
+        if len(wf_preds) > 0:
+            wf_preds = np.array(wf_preds)
+            wf_true = np.array(wf_true)
+            wf_probas = np.array(wf_probas)
+
+            acc = accuracy_score(wf_true, wf_preds)
+            print(f"  Walk-forward accuracy: {acc:.1%} "
+                  f"({len(wf_preds)} test predictions across {fold_num} folds)")
+
+            # High confidence stats on walk-forward predictions
+            for thresh in [0.60, 0.65, 0.70, 0.75]:
+                confident = np.abs(wf_probas - 0.5) >= (thresh - 0.5)
+                if confident.sum() > 0:
+                    cacc = accuracy_score(wf_true[confident], wf_preds[confident])
+                    print(f"    conf>={thresh:.0%}: {cacc:.1%} on "
+                          f"{confident.sum()}/{len(wf_preds)}")
+        else:
+            acc = 0.0
+            print(f"  Not enough data for walk-forward validation")
+
+        # ---- Train FINAL production model on ALL data ----
+        # This model goes into production. It uses every available sample
+        # to maximize signal. The walk-forward accuracy above is the
+        # honest estimate of how this model will perform on future data.
         final_model = RandomForestClassifier(
             n_estimators=200,
             max_depth=5,
             min_samples_leaf=3,
             random_state=42,
         )
-        final_model.fit(X, y)
+        final_model.fit(X_all, y_all)
 
         # Save model and feature names
         model_path = os.path.join(MODEL_DIR, f"rf_model_t{t}.joblib")
@@ -303,9 +400,11 @@ def train_and_evaluate(windows, timepoints):
             print(f"    {feature_names[i]:>30s}: {importances[i]:.4f}")
 
         stats[str(t)] = {
-            "accuracy": round(acc, 4),
-            "n_samples": n,
-            "n_features": X.shape[1],
+            "wf_accuracy": round(acc, 4),
+            "wf_test_predictions": len(wf_preds) if len(wf_preds) > 0 else 0,
+            "wf_folds": fold_num,
+            "n_samples": n_samples,
+            "n_features": X_all.shape[1],
         }
 
     # Save training stats
@@ -323,10 +422,14 @@ def main():
     print("=" * 60)
 
     windows = load_all_windows()
-    print(f"\nLoaded {len(windows)} windows (UP: {sum(1 for w in windows if w['winner']=='up')}, "
+    # Sort by epoch to guarantee chronological order
+    windows.sort(key=lambda w: w["epoch"])
+
+    print(f"\nLoaded {len(windows)} windows "
+          f"(UP: {sum(1 for w in windows if w['winner']=='up')}, "
           f"DOWN: {sum(1 for w in windows if w['winner']=='down')})")
 
-    # Train at key timepoints that showed best accuracy
+    # Train at key timepoints
     timepoints = [60, 90, 120, 150, 180, 210, 240]
     stats = train_and_evaluate(windows, timepoints)
 
@@ -334,10 +437,16 @@ def main():
     print("TRAINING COMPLETE — SUMMARY")
     print("=" * 60)
     for t_str, s in sorted(stats.items(), key=lambda x: int(x[0])):
-        print(f"  t={t_str:>3s}s: LOO acc={s['accuracy']:.1%} ({s['n_samples']} samples, {s['n_features']} features)")
+        wf = s.get("wf_accuracy", 0)
+        n_test = s.get("wf_test_predictions", 0)
+        folds = s.get("wf_folds", 0)
+        print(f"  t={t_str:>3s}s: WF acc={wf:.1%} "
+              f"({n_test} test preds, {folds} folds, "
+              f"{s['n_samples']} total samples)")
 
-    best_t = max(stats.items(), key=lambda x: x[1]["accuracy"])
-    print(f"\n  BEST: t={best_t[0]}s with {best_t[1]['accuracy']:.1%} accuracy")
+    best_t = max(stats.items(), key=lambda x: x[1]["wf_accuracy"])
+    print(f"\n  BEST: t={best_t[0]}s with {best_t[1]['wf_accuracy']:.1%} "
+          f"walk-forward accuracy")
     print("=" * 60)
 
 
