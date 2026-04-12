@@ -29,6 +29,12 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score
 import joblib
 
+try:
+    import xgboost as xgb
+    HAS_XGB = True
+except ImportError:
+    HAS_XGB = False
+
 warnings.filterwarnings("ignore")
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "price_collector", "data")
@@ -407,6 +413,69 @@ def train_and_evaluate(windows, timepoints):
             "n_features": X_all.shape[1],
         }
 
+        # ---- XGBoost: walk-forward + final model ----
+        if HAS_XGB:
+            xgb_wf_preds = []
+            xgb_wf_true = []
+            xgb_wf_probas = []
+            xgb_fold_num = 0
+
+            cursor = initial_train_n
+            while cursor + PURGE_GAP < n_samples:
+                xgb_fold_num += 1
+                train_end = cursor
+                test_start = cursor + PURGE_GAP
+                test_end = min(test_start + FOLD_SIZE, n_samples)
+                if test_start >= n_samples:
+                    break
+
+                X_train = X_all[:train_end]
+                y_train = y_all[:train_end]
+                X_test = X_all[test_start:test_end]
+                y_test = y_all[test_start:test_end]
+                if len(X_test) == 0:
+                    break
+
+                xgb_model = xgb.XGBClassifier(
+                    n_estimators=200, max_depth=3,
+                    learning_rate=0.05, random_state=42,
+                    eval_metric="logloss",
+                )
+                xgb_model.fit(X_train, y_train)
+
+                xgb_preds_fold = xgb_model.predict(X_test)
+                xgb_probas_fold = xgb_model.predict_proba(X_test)[:, 1]
+
+                xgb_wf_preds.extend(xgb_preds_fold.tolist())
+                xgb_wf_true.extend(y_test.tolist())
+                xgb_wf_probas.extend(xgb_probas_fold.tolist())
+                cursor = test_end
+
+            xgb_acc = 0.0
+            if len(xgb_wf_preds) > 0:
+                xgb_wf_preds = np.array(xgb_wf_preds)
+                xgb_wf_true = np.array(xgb_wf_true)
+                xgb_wf_probas = np.array(xgb_wf_probas)
+                xgb_acc = accuracy_score(xgb_wf_true, xgb_wf_preds)
+                diff = xgb_acc - acc
+                marker = " ⭐" if diff > 0.02 else ""
+                print(f"  XGBoost WF accuracy: {xgb_acc:.1%} "
+                      f"(Δ vs RF: {diff:+.1%}){marker}")
+
+            # Train final XGBoost on ALL data
+            xgb_final = xgb.XGBClassifier(
+                n_estimators=200, max_depth=3,
+                learning_rate=0.05, random_state=42,
+                eval_metric="logloss",
+            )
+            xgb_final.fit(X_all, y_all)
+
+            xgb_model_path = os.path.join(MODEL_DIR, f"xgb_model_t{t}.joblib")
+            joblib.dump(xgb_final, xgb_model_path)
+            print(f"  Saved: {xgb_model_path}")
+
+            stats[str(t)]["xgb_wf_accuracy"] = round(xgb_acc, 4)
+
     # Save training stats
     stats_path = os.path.join(MODEL_DIR, "training_stats.json")
     with open(stats_path, "w") as f:
@@ -436,17 +505,23 @@ def main():
     print("\n" + "=" * 60)
     print("TRAINING COMPLETE — SUMMARY")
     print("=" * 60)
+    print(f"  {'t':>5}  {'RF WF':>8}  {'XGB WF':>8}  {'Δ':>6}  samples")
+    print("  " + "-" * 45)
     for t_str, s in sorted(stats.items(), key=lambda x: int(x[0])):
-        wf = s.get("wf_accuracy", 0)
-        n_test = s.get("wf_test_predictions", 0)
-        folds = s.get("wf_folds", 0)
-        print(f"  t={t_str:>3s}s: WF acc={wf:.1%} "
-              f"({n_test} test preds, {folds} folds, "
-              f"{s['n_samples']} total samples)")
+        rf = s.get("wf_accuracy", 0)
+        xgb_a = s.get("xgb_wf_accuracy", 0)
+        diff = xgb_a - rf if xgb_a > 0 else 0
+        marker = " ⭐" if diff > 0.02 else ""
+        print(f"  t={t_str:>3s}s  {rf:>7.1%}  {xgb_a:>7.1%}  {diff:>+5.1%}{marker}  "
+              f"{s['n_samples']}")
 
-    best_t = max(stats.items(), key=lambda x: x[1]["wf_accuracy"])
-    print(f"\n  BEST: t={best_t[0]}s with {best_t[1]['wf_accuracy']:.1%} "
-          f"walk-forward accuracy")
+    best_rf = max(stats.items(), key=lambda x: x[1]["wf_accuracy"])
+    print(f"\n  BEST RF:  t={best_rf[0]}s with {best_rf[1]['wf_accuracy']:.1%}")
+    if HAS_XGB:
+        best_xgb = max(stats.items(),
+                       key=lambda x: x[1].get("xgb_wf_accuracy", 0))
+        print(f"  BEST XGB: t={best_xgb[0]}s with "
+              f"{best_xgb[1].get('xgb_wf_accuracy', 0):.1%}")
     print("=" * 60)
 
 

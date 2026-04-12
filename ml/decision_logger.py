@@ -65,9 +65,14 @@ class DecisionLogger:
     is never blocked by network latency.
     """
 
-    def __init__(self, url=None, key=None):
+    def __init__(self, url=None, key=None,
+                 windows_table="windows", events_table="events",
+                 version_label="v1"):
         self.url = url or os.getenv("SUPABASE_URL")
         self.key = key or os.getenv("SUPABASE_KEY")
+        self.windows_table = windows_table
+        self.events_table = events_table
+        self.version_label = version_label
         self.enabled = False
         self.client: Client = None
         self._queue: Queue = Queue()
@@ -75,20 +80,20 @@ class DecisionLogger:
         self._worker: threading.Thread = None
 
         if not SUPABASE_AVAILABLE:
-            print("  [LOG] supabase package not installed — logging disabled")
+            print(f"  [LOG-{version_label}] supabase not installed — disabled")
             return
         if not self.url or not self.key:
-            print("  [LOG] SUPABASE_URL or SUPABASE_KEY not set — "
-                  "logging disabled")
+            print(f"  [LOG-{version_label}] SUPABASE_URL/KEY not set — disabled")
             return
 
         try:
             self.client = create_client(self.url, self.key)
             self.enabled = True
             self._start_worker()
-            print(f"  [LOG] Connected to Supabase ({self.url[:32]}...)")
+            print(f"  [LOG-{version_label}] Connected → "
+                  f"{windows_table}/{events_table}")
         except Exception as e:
-            print(f"  [LOG] Failed to connect to Supabase: {e}")
+            print(f"  [LOG-{version_label}] Failed: {e}")
             self.enabled = False
 
     # ------------------------------------------------------------------
@@ -106,7 +111,7 @@ class DecisionLogger:
             "btc_open": btc_open,
             "recorded_at": _now_iso(),
         }
-        self._enqueue("upsert", "windows", _clean_row(row))
+        self._enqueue("upsert", self.windows_table, _clean_row(row))
 
     def log_window_settlement(self, slug, **fields):
         """Update the existing windows row with settlement results.
@@ -122,7 +127,7 @@ class DecisionLogger:
         if not self.enabled:
             return
         row = {"slug": slug, **fields}
-        self._enqueue("update_windows", "windows", _clean_row(row))
+        self._enqueue("update_windows", self.windows_table, _clean_row(row))
 
     def log_event(self, slug, elapsed_sec, event_type, **fields):
         """Insert a row into `events`.
@@ -162,7 +167,7 @@ class DecisionLogger:
         if extras:
             row["details_json"] = json.dumps(_clean_row(extras), default=str)
 
-        self._enqueue("insert", "events", _clean_row(row))
+        self._enqueue("insert", self.events_table, _clean_row(row))
 
     def shutdown(self, timeout=10.0):
         """Drain the queue and stop the worker. Call before exit."""
@@ -178,7 +183,8 @@ class DecisionLogger:
 
     def _start_worker(self):
         self._worker = threading.Thread(
-            target=self._worker_loop, daemon=True, name="supabase-logger"
+            target=self._worker_loop, daemon=True,
+            name=f"supabase-logger-{self.version_label}",
         )
         self._worker.start()
 

@@ -21,11 +21,15 @@ import aiohttp
 import certifi
 import websockets
 
-# Paper trading (1:1 mirror of prod_ml_strategy) — runs alongside data collection.
+# Paper trading — 4 versions running simultaneously on the same data.
 # Imports are best-effort: if ml/ deps are missing, the collector still works.
 try:
     from ml.prediction_engine import PredictionEngine
+    from ml.prediction_engine_xgb import PredictionEngineXGB
     from ml.paper_strategy import PaperStrategy
+    from ml.paper_strategy_v2 import PaperStrategyV2
+    from ml.paper_strategy_v3 import PaperStrategyV3
+    from ml.paper_strategy_v4 import PaperStrategyV4
     from ml.decision_logger import DecisionLogger
     PAPER_TRADING_AVAILABLE = True
 except Exception as _e:
@@ -39,9 +43,9 @@ CLOB_WS = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
 CHAINLINK_WS = "wss://ws-live-data.polymarket.com"
 CHAINLINK_PING_INTERVAL = 4  # seconds
 
-# Globals: one logger + one prediction engine per process (shared across windows).
-# These are created lazily in main() if PAPER_TRADING_AVAILABLE.
-DECISION_LOGGER = None
+# Global loggers — one per strategy version.
+# Created lazily in main() if PAPER_TRADING_AVAILABLE.
+LOGGERS = {}  # {"v1": DecisionLogger, "v2": ..., "v3": ..., "v4": ...}
 
 
 def ssl_ctx():
@@ -571,25 +575,55 @@ async def record_market(market):
         chainlink_btc_listener(btc_state, cc_stop, on_tick=on_btc_tick)
     )
 
-    # ---------- Paper trading: one PaperStrategy instance per window ----------
-    # Each window gets its own PredictionEngine + PaperStrategy. They share the
-    # global DECISION_LOGGER which writes to Supabase on a background thread.
-    paper = None
+    # ---------- Paper trading: 4 strategy versions per window ----------
+    # All 4 versions receive the SAME tick data simultaneously.
+    # Each version has its own PredictionEngine + logger.
+    papers = {}  # {"v1": PaperStrategy, "v2": ..., "v3": ..., "v4": ...}
     btc_open_first = None
-    if PAPER_TRADING_AVAILABLE and DECISION_LOGGER is not None:
+    if PAPER_TRADING_AVAILABLE and LOGGERS:
         try:
-            engine = PredictionEngine()
-            paper = PaperStrategy(
-                slug=market.slug,
-                open_epoch=market.open_epoch,
-                close_epoch=market.close_epoch,
-                predictor=engine,
-                logger=DECISION_LOGGER,
-            )
-            print(f"  [PAPER] Strategy initialized for {market.slug}")
+            # V1: current RF + ensemble (baseline)
+            if LOGGERS.get("v1") and LOGGERS["v1"].enabled:
+                eng_v1 = PredictionEngine()
+                papers["v1"] = PaperStrategy(
+                    slug=market.slug, open_epoch=market.open_epoch,
+                    close_epoch=market.close_epoch,
+                    predictor=eng_v1, logger=LOGGERS["v1"],
+                )
+
+            # V2: XGBoost + ensemble (same strategy, different model)
+            if LOGGERS.get("v2") and LOGGERS["v2"].enabled:
+                eng_v2 = PredictionEngineXGB()
+                papers["v2"] = PaperStrategyV2(
+                    slug=market.slug, open_epoch=market.open_epoch,
+                    close_epoch=market.close_epoch,
+                    predictor=eng_v2, logger=LOGGERS["v2"],
+                )
+
+            # V3: RF + regime filter (same model, skip bad windows)
+            if LOGGERS.get("v3") and LOGGERS["v3"].enabled:
+                eng_v3 = PredictionEngine()
+                papers["v3"] = PaperStrategyV3(
+                    slug=market.slug, open_epoch=market.open_epoch,
+                    close_epoch=market.close_epoch,
+                    predictor=eng_v3, logger=LOGGERS["v3"],
+                )
+
+            # V4: RF + late entry + raw ML (enter at t=210, no ensemble)
+            if LOGGERS.get("v4") and LOGGERS["v4"].enabled:
+                eng_v4 = PredictionEngine()
+                papers["v4"] = PaperStrategyV4(
+                    slug=market.slug, open_epoch=market.open_epoch,
+                    close_epoch=market.close_epoch,
+                    predictor=eng_v4, logger=LOGGERS["v4"],
+                )
+
+            if papers:
+                print(f"  [PAPER] {len(papers)} strategies initialized: "
+                      f"{list(papers.keys())}")
         except Exception as e:
-            print(f"  [PAPER] Failed to init strategy for {market.slug}: {e}")
-            paper = None
+            print(f"  [PAPER] Failed to init strategies: {e}")
+            papers = {}
 
     # Seed initial values from REST
     await seed_initial_state(market, state)
@@ -652,24 +686,25 @@ async def record_market(market):
                             state[f"{side}_ask"] = min(float(a["price"]) for a in asks)
                         market.write_tick("book", state, btc_state)
 
-                        # Feed the same tick into the paper strategy
-                        if paper is not None:
+                        # Feed the same tick into ALL paper strategies
+                        if papers:
                             elapsed = time.time() - market.open_epoch
                             if 0 <= elapsed <= 300:
                                 btc_now = btc_state.get("price")
                                 if btc_open_first is None and btc_now:
                                     btc_open_first = btc_now
-                                try:
-                                    paper.on_tick(
-                                        elapsed_sec=elapsed,
-                                        up_bid=state["up_bid"],
-                                        up_ask=state["up_ask"],
-                                        down_bid=state["down_bid"],
-                                        down_ask=state["down_ask"],
-                                        btc_price=btc_now,
-                                    )
-                                except Exception as pe:
-                                    print(f"  [PAPER] on_tick error: {pe}")
+                                for ver, strat in papers.items():
+                                    try:
+                                        strat.on_tick(
+                                            elapsed_sec=elapsed,
+                                            up_bid=state["up_bid"],
+                                            up_ask=state["up_ask"],
+                                            down_bid=state["down_bid"],
+                                            down_ask=state["down_ask"],
+                                            btc_price=btc_now,
+                                        )
+                                    except Exception as pe:
+                                        print(f"  [PAPER-{ver}] on_tick error: {pe}")
 
     except Exception as e:
         print(f"  WS error for {market.slug}: {e}")
@@ -683,20 +718,23 @@ async def record_market(market):
         market.close_csv()
         print(f"  Recorded {market.tick_count} ticks for {market.slug}")
 
-        # ---------- Paper trading settlement ----------
-        if paper is not None:
+        # ---------- Paper trading settlement (all versions) ----------
+        if papers:
             try:
-                # Determine winner from the recorded CSV (Chainlink oracle data)
                 winner_str = get_winner_from_csv(market)
                 winner_norm = (winner_str or "unknown").lower()
                 btc_close = btc_state.get("price") or btc_open_first
-                paper.settle(
-                    btc_open=btc_open_first,
-                    btc_close=btc_close,
-                    winner=winner_norm,
-                )
-            except Exception as se:
-                print(f"  [PAPER] Settlement error for {market.slug}: {se}")
+                for ver, strat in papers.items():
+                    try:
+                        strat.settle(
+                            btc_open=btc_open_first,
+                            btc_close=btc_close,
+                            winner=winner_norm,
+                        )
+                    except Exception as se:
+                        print(f"  [PAPER-{ver}] Settlement error: {se}")
+            except Exception as e:
+                print(f"  [PAPER] Winner determination error: {e}")
 
 
 async def main():
@@ -707,15 +745,26 @@ async def main():
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Initialize the global decision logger (Supabase) for paper trading.
-    # If SUPABASE_URL/SUPABASE_KEY are not set, logging is silently disabled.
-    global DECISION_LOGGER
+    # Initialize one DecisionLogger per strategy version.
+    # Each writes to its own pair of Supabase tables.
+    global LOGGERS
     if PAPER_TRADING_AVAILABLE:
-        try:
-            DECISION_LOGGER = DecisionLogger()
-        except Exception as e:
-            print(f"  [PAPER] Could not init DecisionLogger: {e}")
-            DECISION_LOGGER = None
+        version_configs = [
+            ("v1", "windows", "events"),
+            ("v2", "v2_windows", "v2_events"),
+            ("v3", "v3_windows", "v3_events"),
+            ("v4", "v4_windows", "v4_events"),
+        ]
+        for ver, win_tbl, evt_tbl in version_configs:
+            try:
+                LOGGERS[ver] = DecisionLogger(
+                    windows_table=win_tbl,
+                    events_table=evt_tbl,
+                    version_label=ver,
+                )
+            except Exception as e:
+                print(f"  [PAPER-{ver}] Could not init logger: {e}")
+                LOGGERS[ver] = None
 
     print("=" * 50)
     print("BTC 5m Price Tick Collector (Chainlink Oracle)")
@@ -723,7 +772,8 @@ async def main():
     now_dt = datetime.now(timezone.utc)
     print(f"Start time: {now_dt.strftime('%Y-%m-%d %H:%M:%S UTC')}")
     print(f"Windows to record: {args.windows}")
-    print(f"Paper trading: {'ENABLED' if (DECISION_LOGGER and DECISION_LOGGER.enabled) else 'disabled'}")
+    enabled_versions = [v for v, l in LOGGERS.items() if l and l.enabled]
+    print(f"Paper trading: {len(enabled_versions)} versions active: {enabled_versions}")
 
     print("\nDiscovering upcoming BTC 5m markets...")
     markets = await discover_next_markets(args.windows)
@@ -779,10 +829,11 @@ async def main():
         print(f"    {m.csv_path}")
     print("=" * 50)
 
-    # Drain the decision logger queue before exiting so all events get pushed.
-    if DECISION_LOGGER is not None and DECISION_LOGGER.enabled:
-        print("\nFlushing paper trading decisions to Supabase...")
-        DECISION_LOGGER.shutdown(timeout=20.0)
+    # Drain all decision logger queues before exiting.
+    for ver, logger in LOGGERS.items():
+        if logger is not None and logger.enabled:
+            print(f"\nFlushing {ver} decisions to Supabase...")
+            logger.shutdown(timeout=15.0)
 
 
 if __name__ == "__main__":

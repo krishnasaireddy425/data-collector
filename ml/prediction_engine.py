@@ -139,7 +139,9 @@ class PredictionEngine:
         new_idx = np.arange(0, int(max_t) + 1, 1.0)
         df_r = df.set_index("elapsed_sec")
         df_1s = df_r.reindex(df_r.index.union(new_idx)).sort_index()
-        df_1s = df_1s.interpolate(method="index", limit_direction="both")
+        # Forward-fill only — matches train_model.py preprocessing.
+        # Never uses future data to fill gaps at time t.
+        df_1s = df_1s.ffill().bfill()
         df_1s = df_1s.loc[new_idx].reset_index()
         df_1s.rename(columns={"index": "elapsed_sec"}, inplace=True)
         return df_1s
@@ -297,6 +299,36 @@ class PredictionEngine:
                 feat[k] = 0.0
 
         return feat
+
+    def _compute_features_safe(self, elapsed):
+        """Compute features at elapsed time without running the model.
+        Returns feature dict or None. Used by V3 for regime detection."""
+        try:
+            return self._engineer_features(self._build_dataframe(), int(elapsed))
+        except Exception:
+            return None
+
+    def _get_ml_prob_raw(self, elapsed):
+        """Return raw ML probability of UP without ensemble weighting.
+        Used by V4 which bypasses the ensemble entirely."""
+        df = self._build_dataframe()
+        if df is None:
+            return None
+
+        t = max([tp for tp in PREDICTION_TIMES if tp <= elapsed], default=None)
+        if t is None or t not in self.models:
+            return None
+
+        feat = self._engineer_features(df, t)
+        if feat is None:
+            return None
+
+        fn = self.feature_names[t]
+        X = np.array([[feat.get(name, 0.0) for name in fn]])
+        try:
+            return float(self.models[t].predict_proba(X)[0][1])
+        except Exception:
+            return None
 
     def predict(self, elapsed):
         """
