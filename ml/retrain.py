@@ -64,7 +64,7 @@ def log_retrain(n_samples, n_new, stats):
         "timestamp": datetime.now().isoformat(),
         "n_samples": n_samples,
         "n_new_samples": n_new,
-        "accuracies": {k: v["accuracy"] for k, v in stats.items()},
+        "accuracies": {k: v["wf_accuracy"] for k, v in stats.items()},
     }
 
     log = []
