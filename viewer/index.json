@@ -1,7 +1,367 @@
 {
-  "generated_at": "2026-04-13T01:15:13.097508+00:00",
-  "count": 730,
+  "generated_at": "2026-04-13T06:20:12.307646+00:00",
+  "count": 790,
   "windows": [
+    {
+      "slug": "btc-updown-5m-1776060900",
+      "filename": "btc-updown-5m-1776060900.csv",
+      "winner": "Up",
+      "epoch": 1776060900
+    },
+    {
+      "slug": "btc-updown-5m-1776060600",
+      "filename": "btc-updown-5m-1776060600.csv",
+      "winner": "Up",
+      "epoch": 1776060600
+    },
+    {
+      "slug": "btc-updown-5m-1776060300",
+      "filename": "btc-updown-5m-1776060300.csv",
+      "winner": "Up",
+      "epoch": 1776060300
+    },
+    {
+      "slug": "btc-updown-5m-1776060000",
+      "filename": "btc-updown-5m-1776060000.csv",
+      "winner": "Up",
+      "epoch": 1776060000
+    },
+    {
+      "slug": "btc-updown-5m-1776059700",
+      "filename": "btc-updown-5m-1776059700.csv",
+      "winner": "Up",
+      "epoch": 1776059700
+    },
+    {
+      "slug": "btc-updown-5m-1776059400",
+      "filename": "btc-updown-5m-1776059400.csv",
+      "winner": "Up",
+      "epoch": 1776059400
+    },
+    {
+      "slug": "btc-updown-5m-1776059100",
+      "filename": "btc-updown-5m-1776059100.csv",
+      "winner": "Up",
+      "epoch": 1776059100
+    },
+    {
+      "slug": "btc-updown-5m-1776058800",
+      "filename": "btc-updown-5m-1776058800.csv",
+      "winner": "Up",
+      "epoch": 1776058800
+    },
+    {
+      "slug": "btc-updown-5m-1776058500",
+      "filename": "btc-updown-5m-1776058500.csv",
+      "winner": "Down",
+      "epoch": 1776058500
+    },
+    {
+      "slug": "btc-updown-5m-1776058200",
+      "filename": "btc-updown-5m-1776058200.csv",
+      "winner": "Down",
+      "epoch": 1776058200
+    },
+    {
+      "slug": "btc-updown-5m-1776057900",
+      "filename": "btc-updown-5m-1776057900.csv",
+      "winner": "Up",
+      "epoch": 1776057900
+    },
+    {
+      "slug": "btc-updown-5m-1776057600",
+      "filename": "btc-updown-5m-1776057600.csv",
+      "winner": "Up",
+      "epoch": 1776057600
+    },
+    {
+      "slug": "btc-updown-5m-1776057300",
+      "filename": "btc-updown-5m-1776057300.csv",
+      "winner": "Up",
+      "epoch": 1776057300
+    },
+    {
+      "slug": "btc-updown-5m-1776057000",
+      "filename": "btc-updown-5m-1776057000.csv",
+      "winner": "Up",
+      "epoch": 1776057000
+    },
+    {
+      "slug": "btc-updown-5m-1776056700",
+      "filename": "btc-updown-5m-1776056700.csv",
+      "winner": "Down",
+      "epoch": 1776056700
+    },
+    {
+      "slug": "btc-updown-5m-1776056400",
+      "filename": "btc-updown-5m-1776056400.csv",
+      "winner": "Down",
+      "epoch": 1776056400
+    },
+    {
+      "slug": "btc-updown-5m-1776056100",
+      "filename": "btc-updown-5m-1776056100.csv",
+      "winner": "Down",
+      "epoch": 1776056100
+    },
+    {
+      "slug": "btc-updown-5m-1776055800",
+      "filename": "btc-updown-5m-1776055800.csv",
+      "winner": "Down",
+      "epoch": 1776055800
+    },
+    {
+      "slug": "btc-updown-5m-1776055500",
+      "filename": "btc-updown-5m-1776055500.csv",
+      "winner": "Down",
+      "epoch": 1776055500
+    },
+    {
+      "slug": "btc-updown-5m-1776055200",
+      "filename": "btc-updown-5m-1776055200.csv",
+      "winner": "Down",
+      "epoch": 1776055200
+    },
+    {
+      "slug": "btc-updown-5m-1776054900",
+      "filename": "btc-updown-5m-1776054900.csv",
+      "winner": "Up",
+      "epoch": 1776054900
+    },
+    {
+      "slug": "btc-updown-5m-1776054600",
+      "filename": "btc-updown-5m-1776054600.csv",
+      "winner": "Up",
+      "epoch": 1776054600
+    },
+    {
+      "slug": "btc-updown-5m-1776054300",
+      "filename": "btc-updown-5m-1776054300.csv",
+      "winner": "Up",
+      "epoch": 1776054300
+    },
+    {
+      "slug": "btc-updown-5m-1776054000",
+      "filename": "btc-updown-5m-1776054000.csv",
+      "winner": "Up",
+      "epoch": 1776054000
+    },
+    {
+      "slug": "btc-updown-5m-1776053700",
+      "filename": "btc-updown-5m-1776053700.csv",
+      "winner": "Up",
+      "epoch": 1776053700
+    },
+    {
+      "slug": "btc-updown-5m-1776053400",
+      "filename": "btc-updown-5m-1776053400.csv",
+      "winner": "Up",
+      "epoch": 1776053400
+    },
+    {
+      "slug": "btc-updown-5m-1776053100",
+      "filename": "btc-updown-5m-1776053100.csv",
+      "winner": "Down",
+      "epoch": 1776053100
+    },
+    {
+      "slug": "btc-updown-5m-1776052800",
+      "filename": "btc-updown-5m-1776052800.csv",
+      "winner": "Down",
+      "epoch": 1776052800
+    },
+    {
+      "slug": "btc-updown-5m-1776052500",
+      "filename": "btc-updown-5m-1776052500.csv",
+      "winner": "Down",
+      "epoch": 1776052500
+    },
+    {
+      "slug": "btc-updown-5m-1776052200",
+      "filename": "btc-updown-5m-1776052200.csv",
+      "winner": "Up",
+      "epoch": 1776052200
+    },
+    {
+      "slug": "btc-updown-5m-1776051900",
+      "filename": "btc-updown-5m-1776051900.csv",
+      "winner": "Down",
+      "epoch": 1776051900
+    },
+    {
+      "slug": "btc-updown-5m-1776051600",
+      "filename": "btc-updown-5m-1776051600.csv",
+      "winner": "Up",
+      "epoch": 1776051600
+    },
+    {
+      "slug": "btc-updown-5m-1776051300",
+      "filename": "btc-updown-5m-1776051300.csv",
+      "winner": "Down",
+      "epoch": 1776051300
+    },
+    {
+      "slug": "btc-updown-5m-1776051000",
+      "filename": "btc-updown-5m-1776051000.csv",
+      "winner": "Down",
+      "epoch": 1776051000
+    },
+    {
+      "slug": "btc-updown-5m-1776050700",
+      "filename": "btc-updown-5m-1776050700.csv",
+      "winner": "Up",
+      "epoch": 1776050700
+    },
+    {
+      "slug": "btc-updown-5m-1776050400",
+      "filename": "btc-updown-5m-1776050400.csv",
+      "winner": "Down",
+      "epoch": 1776050400
+    },
+    {
+      "slug": "btc-updown-5m-1776050100",
+      "filename": "btc-updown-5m-1776050100.csv",
+      "winner": "Up",
+      "epoch": 1776050100
+    },
+    {
+      "slug": "btc-updown-5m-1776049800",
+      "filename": "btc-updown-5m-1776049800.csv",
+      "winner": "Up",
+      "epoch": 1776049800
+    },
+    {
+      "slug": "btc-updown-5m-1776049500",
+      "filename": "btc-updown-5m-1776049500.csv",
+      "winner": "Down",
+      "epoch": 1776049500
+    },
+    {
+      "slug": "btc-updown-5m-1776049200",
+      "filename": "btc-updown-5m-1776049200.csv",
+      "winner": "Up",
+      "epoch": 1776049200
+    },
+    {
+      "slug": "btc-updown-5m-1776048900",
+      "filename": "btc-updown-5m-1776048900.csv",
+      "winner": "Up",
+      "epoch": 1776048900
+    },
+    {
+      "slug": "btc-updown-5m-1776048600",
+      "filename": "btc-updown-5m-1776048600.csv",
+      "winner": "Up",
+      "epoch": 1776048600
+    },
+    {
+      "slug": "btc-updown-5m-1776048300",
+      "filename": "btc-updown-5m-1776048300.csv",
+      "winner": "Up",
+      "epoch": 1776048300
+    },
+    {
+      "slug": "btc-updown-5m-1776048000",
+      "filename": "btc-updown-5m-1776048000.csv",
+      "winner": "Down",
+      "epoch": 1776048000
+    },
+    {
+      "slug": "btc-updown-5m-1776047700",
+      "filename": "btc-updown-5m-1776047700.csv",
+      "winner": "Down",
+      "epoch": 1776047700
+    },
+    {
+      "slug": "btc-updown-5m-1776047400",
+      "filename": "btc-updown-5m-1776047400.csv",
+      "winner": "Down",
+      "epoch": 1776047400
+    },
+    {
+      "slug": "btc-updown-5m-1776047100",
+      "filename": "btc-updown-5m-1776047100.csv",
+      "winner": "Up",
+      "epoch": 1776047100
+    },
+    {
+      "slug": "btc-updown-5m-1776046800",
+      "filename": "btc-updown-5m-1776046800.csv",
+      "winner": "Up",
+      "epoch": 1776046800
+    },
+    {
+      "slug": "btc-updown-5m-1776046500",
+      "filename": "btc-updown-5m-1776046500.csv",
+      "winner": "Up",
+      "epoch": 1776046500
+    },
+    {
+      "slug": "btc-updown-5m-1776046200",
+      "filename": "btc-updown-5m-1776046200.csv",
+      "winner": "Down",
+      "epoch": 1776046200
+    },
+    {
+      "slug": "btc-updown-5m-1776045900",
+      "filename": "btc-updown-5m-1776045900.csv",
+      "winner": "Down",
+      "epoch": 1776045900
+    },
+    {
+      "slug": "btc-updown-5m-1776045600",
+      "filename": "btc-updown-5m-1776045600.csv",
+      "winner": "Down",
+      "epoch": 1776045600
+    },
+    {
+      "slug": "btc-updown-5m-1776045300",
+      "filename": "btc-updown-5m-1776045300.csv",
+      "winner": "Up",
+      "epoch": 1776045300
+    },
+    {
+      "slug": "btc-updown-5m-1776045000",
+      "filename": "btc-updown-5m-1776045000.csv",
+      "winner": "Down",
+      "epoch": 1776045000
+    },
+    {
+      "slug": "btc-updown-5m-1776044700",
+      "filename": "btc-updown-5m-1776044700.csv",
+      "winner": "Down",
+      "epoch": 1776044700
+    },
+    {
+      "slug": "btc-updown-5m-1776044400",
+      "filename": "btc-updown-5m-1776044400.csv",
+      "winner": "Up",
+      "epoch": 1776044400
+    },
+    {
+      "slug": "btc-updown-5m-1776044100",
+      "filename": "btc-updown-5m-1776044100.csv",
+      "winner": "Down",
+      "epoch": 1776044100
+    },
+    {
+      "slug": "btc-updown-5m-1776043800",
+      "filename": "btc-updown-5m-1776043800.csv",
+      "winner": "Up",
+      "epoch": 1776043800
+    },
+    {
+      "slug": "btc-updown-5m-1776043500",
+      "filename": "btc-updown-5m-1776043500.csv",
+      "winner": "Up",
+      "epoch": 1776043500
+    },
+    {
+      "slug": "btc-updown-5m-1776043200",
+      "filename": "btc-updown-5m-1776043200.csv",
+      "winner": "Down",
+      "epoch": 1776043200
+    },
     {
       "slug": "btc-updown-5m-1776042600",
       "filename": "btc-updown-5m-1776042600.csv",
