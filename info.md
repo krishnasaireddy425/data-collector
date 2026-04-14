@@ -6,6 +6,95 @@ Written so we can review past decisions without guessing why they were made.
 
 ---
 
+## 2026-04-14: V3/V4/V5 Rewrite — Continuous Prediction + EV Model + Cheap-Side Rule
+
+### Summary
+The old V3 (regime filter on RF) and V4 (late+raw ML) were built on top of
+the flawed 7-snapshot training. Rewrote V3/V4 around proper continuous
+prediction + a new EV regression framework, and added V5 as a pure
+rule-based cheap-side strategy (no ML). All three coexist with V1/V2
+baselines for a 5-way A/B test.
+
+### The big design shift
+V1/V2 train 7 separate models (one per timepoint: 60, 90, 120, 150, 180,
+210, 240s) and query the nearest one at live time. This throws away ~99%
+of every window's tick data. Real quant firms train ONE model on every
+tick as a sample with `elapsed_sec` as a feature — "continuous prediction."
+
+### Files added
+| File | Purpose |
+|------|---------|
+| `ml/features_sec.py` | 44-feature function shared by train + predict. Leak-safe (only `shift()` / `rolling()`) |
+| `ml/train_sec.py` | Trains one continuous XGB probability model on ~240K samples (797 windows × 300s). Sample-weighted by elapsed_sec. Fits isotonic calibrator on inner-val |
+| `ml/predictor_sec.py` | Live probability predictor. Loads `xgb_sec.joblib` + `calibrator.joblib` |
+| `ml/backtest_sec.py` | Tick-by-tick replay — reads held-out CSVs in event order, predicts at every integer second. Same code path as live |
+| `ml/paper_replay.py` | Shared replay utilities |
+| `ml/ev_train.py` | Trains two XGBoost **regressors** (EV_Up, EV_Down) predicting dollars/share PnL of buying each side |
+| `ml/ev_predictor.py` | Live EV predictor. Returns `(ev_up, ev_down)` per tick |
+| `ml/ev_backtest.py` / `ev_backtest_fast.py` | EV backtest with threshold sweep + H1/H2 stability check |
+| `ml/analyze_cheap_side.py` | Offline cheap-side hypothesis test. Numbers inflated by lookahead bug — caught + documented |
+| `ml/cheap_side_replay.py` | Honest tick-by-tick replay of 7 cheap-side rule variants |
+| `ml/paper_strategy_v5.py` | Rule-based cheap-side V5 strategy (no ML) |
+| `sql/003_recreate_v3_v4_clean.sql` | Drops old V3/V4 tables (12 unused hedge/stop-loss cols) and recreates with fields each strategy actually uses |
+| `sql/004_create_v5_clean.sql` | v5_windows + v5_events schema tailored to the cheap-side rule |
+
+### Files modified
+| File | What changed | Why |
+|------|-------------|-----|
+| `ml/paper_strategy_v3.py` | Rewrote: uses `PredictorSec`, enters on calibrated `P(side) >= 0.90`, no hedging | Old V3 was regime-filtered RF; new V3 is continuous XGB probability |
+| `ml/paper_strategy_v4.py` | Rewrote: uses `EVPredictor`, enters when `max(EV_up, EV_down) > $0.025`, no hedging | Old V4 was late-entry+raw-ML; new V4 is EV regression |
+| `ml/decision_logger.py` | Added `events_cols=` parameter for per-version column whitelists; `details_json` only emitted where the target table has that column | Clean V3/V4/V5 schemas don't have `details_json` |
+| `price_collector/main.py` | Registers 5 versions instead of 4; imports `PredictorSec`, `EVPredictor`, `PaperStrategyV5` | Full 5-way A/B test |
+
+### The 5 versions
+
+**V1 (baseline): RF 7-snapshot + full strategy (hedging, stop-loss).** Unchanged. 4-week production baseline.  → `windows`, `events`
+
+**V2 (baseline): XGB 7-snapshot + full strategy.** Unchanged. XGB twin of V1.  → `v2_windows`, `v2_events`
+
+**V3 (new): 44-feature continuous XGB probability.** Sample-weighted + isotonic-calibrated. Enters first tick calibrated `P(side) >= 0.90` in [60, 240]s. Hold to settlement. Best honest backtest: **+$28.65/day** at conf=0.90 (170-test).  → `v3_windows`, `v3_events`
+
+**V4 (new): Expected-Value regression.** Two XGBoost regressors predict dollars/share PnL for each side. Enters first tick `max(EV_up, EV_down) > $0.025` in [30, 240]s. Hold to settlement. Best honest backtest: **+$117.20/day** at threshold 0.025 (288-test, stable across halves). Known risk: 93% Up-biased in training regime — untested on bearish days.  → `v4_windows`, `v4_events`
+
+**V5 (new): pure rule-based cheap-side — NO ML.** At each tick: track local-min of each side; buy 10 shares of cheap side when `0.20 <= cheap_price <= 0.40` AND `cheap_price >= local_min + 0.02` AND `30 <= t <= 240`. Best honest backtest: **+$70.10/day** (288-test, stable). Direction-neutral (46-47% Up entries) — works in any regime.  → `v5_windows`, `v5_events`
+
+### Key empirical findings
+
+1. **Continuous prediction closes the backtest-vs-live gap.** Old 7-snapshot: 89.5% "backtest" → 71.5% live (18-point gap). New tick-replay: 70.1% at conf≥0.75 — matches live.
+
+2. **Aggressive hyperparameter tuning hurts at this data size.** Optuna (40 trials) improved inner-val 0.6% but test PnL dropped 2-5% at important thresholds. Classic val-set memorization. Using XGBoost defaults.
+
+3. **EV framework beats probability prediction 4x.** At 10 shares/288 events: EV@0.025 = +$117/day vs probability@0.90 = +$28.65/day. EV directly optimizes dollars, no hand-tuned threshold indirection.
+
+4. **Market over-reaction is real but small.** Empirical: at $0.30-$0.40 cheap-side entries, win rate is 38% vs implied 35%. That's real +3% mispricing, worth ~$70/day at 10 shares.
+
+5. **BTC 5-min direction on public data caps around 70-75%.** Multiple architectures (RF, XGB 7-snapshot, XGB continuous) hit the same ceiling on honest tests. This is the market's own accuracy on the same public data. Breaking through requires different information (Binance tick, on-chain, cross-market).
+
+### Compare versions after ~500 live windows
+
+```sql
+SELECT 'v1' AS v, COUNT(*) FILTER (WHERE entry_made) AS entries,
+       SUM(pnl) FILTER (WHERE entry_made) AS pnl,
+       ROUND(100.0*AVG(CASE WHEN correct THEN 1.0 ELSE 0.0 END) FILTER (WHERE entry_made), 1) AS acc
+FROM windows
+UNION ALL SELECT 'v2', COUNT(*) FILTER (WHERE entry_made), SUM(pnl) FILTER (WHERE entry_made),
+       ROUND(100.0*AVG(CASE WHEN correct THEN 1.0 ELSE 0.0 END) FILTER (WHERE entry_made), 1) FROM v2_windows
+UNION ALL SELECT 'v3', COUNT(*) FILTER (WHERE entry_made), SUM(pnl) FILTER (WHERE entry_made),
+       ROUND(100.0*AVG(CASE WHEN correct THEN 1.0 ELSE 0.0 END) FILTER (WHERE entry_made), 1) FROM v3_windows
+UNION ALL SELECT 'v4', COUNT(*) FILTER (WHERE entry_made), SUM(pnl) FILTER (WHERE entry_made),
+       ROUND(100.0*AVG(CASE WHEN correct THEN 1.0 ELSE 0.0 END) FILTER (WHERE entry_made), 1) FROM v4_windows
+UNION ALL SELECT 'v5', COUNT(*) FILTER (WHERE entry_made), SUM(pnl) FILTER (WHERE entry_made),
+       ROUND(100.0*AVG(CASE WHEN correct THEN 1.0 ELSE 0.0 END) FILTER (WHERE entry_made), 1) FROM v5_windows
+ORDER BY v;
+```
+
+### Deployment steps
+1. Run `sql/003_recreate_v3_v4_clean.sql` in Supabase (drops old, creates clean V3/V4).
+2. Run `sql/004_create_v5_clean.sql` in Supabase (creates V5 tables).
+3. Commit staged changes; next collector run populates all 5 versions.
+
+---
+
 ## 2026-04-11: A/B Paper Trading Test (4 Versions)
 
 ### What changed

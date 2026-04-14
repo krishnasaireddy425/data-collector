@@ -65,14 +65,29 @@ class DecisionLogger:
     is never blocked by network latency.
     """
 
+    # Default column whitelist for the events table (V1/V2 schema).
+    # Strategies with different schemas pass `events_cols=` at init.
+    DEFAULT_EVENTS_COLS = {
+        "up_bid", "up_ask", "down_bid", "down_ask",
+        "up_spread", "down_spread", "btc_price", "btc_change_from_open",
+        "ml_prob_up", "ml_model_t", "ensemble_confidence",
+        "predicted_side", "market_leader_signal", "btc_direction_signal",
+        "btc_market_agree", "ask_strength",
+        "action", "side", "shares", "price", "reason",
+        "spread_value", "spread_passed", "reversal_count",
+        "reversal_passed", "confirm_elapsed", "hedgeable",
+        "hedge_tier", "combined_cost", "opp_ask", "guaranteed_profit",
+    }
+
     def __init__(self, url=None, key=None,
                  windows_table="windows", events_table="events",
-                 version_label="v1"):
+                 version_label="v1", events_cols=None):
         self.url = url or os.getenv("SUPABASE_URL")
         self.key = key or os.getenv("SUPABASE_KEY")
         self.windows_table = windows_table
         self.events_table = events_table
         self.version_label = version_label
+        self.events_cols = set(events_cols) if events_cols is not None else self.DEFAULT_EVENTS_COLS
         self.enabled = False
         self.client: Client = None
         self._queue: Queue = Queue()
@@ -139,18 +154,8 @@ class DecisionLogger:
         if not self.enabled:
             return
 
-        # Known column whitelist for the events table
-        known_cols = {
-            "up_bid", "up_ask", "down_bid", "down_ask",
-            "up_spread", "down_spread", "btc_price", "btc_change_from_open",
-            "ml_prob_up", "ml_model_t", "ensemble_confidence",
-            "predicted_side", "market_leader_signal", "btc_direction_signal",
-            "btc_market_agree", "ask_strength",
-            "action", "side", "shares", "price", "reason",
-            "spread_value", "spread_passed", "reversal_count",
-            "reversal_passed", "confirm_elapsed", "hedgeable",
-            "hedge_tier", "combined_cost", "opp_ask", "guaranteed_profit",
-        }
+        known_cols = self.events_cols
+        has_details_json = "details_json" in known_cols or self.version_label in ("v1", "v2")
 
         row = {
             "slug": slug,
@@ -164,7 +169,9 @@ class DecisionLogger:
                 row[k] = v
             else:
                 extras[k] = v
-        if extras:
+        # Only emit details_json if the target table actually has that column
+        # (V1/V2 do; the clean V3/V4 schemas do not).
+        if extras and has_details_json:
             row["details_json"] = json.dumps(_clean_row(extras), default=str)
 
         self._enqueue("insert", self.events_table, _clean_row(row))

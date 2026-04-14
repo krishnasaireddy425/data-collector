@@ -21,15 +21,23 @@ import aiohttp
 import certifi
 import websockets
 
-# Paper trading — 4 versions running simultaneously on the same data.
+# Paper trading — 5 versions running simultaneously on the same data.
+# V1: old RF 7-snapshot + full strategy (baseline)
+# V2: old XGB 7-snapshot + full strategy (baseline)
+# V3: new 44f continuous XGB probability model + simple entry
+# V4: new EV (expected-value) regression model + simple entry
+# V5: pure rule-based cheap-side mean-reversion (no ML)
 # Imports are best-effort: if ml/ deps are missing, the collector still works.
 try:
     from ml.prediction_engine import PredictionEngine
     from ml.prediction_engine_xgb import PredictionEngineXGB
     from ml.paper_strategy import PaperStrategy
     from ml.paper_strategy_v2 import PaperStrategyV2
+    from ml.predictor_sec import PredictorSec
+    from ml.ev_predictor import EVPredictor
     from ml.paper_strategy_v3 import PaperStrategyV3
     from ml.paper_strategy_v4 import PaperStrategyV4
+    from ml.paper_strategy_v5 import PaperStrategyV5
     from ml.decision_logger import DecisionLogger
     PAPER_TRADING_AVAILABLE = True
 except Exception as _e:
@@ -45,7 +53,7 @@ CHAINLINK_PING_INTERVAL = 4  # seconds
 
 # Global loggers — one per strategy version.
 # Created lazily in main() if PAPER_TRADING_AVAILABLE.
-LOGGERS = {}  # {"v1": DecisionLogger, "v2": ..., "v3": ..., "v4": ...}
+LOGGERS = {}  # {"v1": DecisionLogger, "v2": ..., "v3": ..., "v4": ..., "v5": ...}
 
 
 def ssl_ctx():
@@ -577,7 +585,7 @@ async def record_market(market):
 
     # ---------- Paper trading: 4 strategy versions per window ----------
     # All 4 versions receive the SAME tick data simultaneously.
-    # Each version has its own PredictionEngine + logger.
+    # Each version has its own predictor + logger.
     papers = {}  # {"v1": PaperStrategy, "v2": ..., "v3": ..., "v4": ...}
     btc_open_first = None
     if PAPER_TRADING_AVAILABLE and LOGGERS:
@@ -600,23 +608,40 @@ async def record_market(market):
                     predictor=eng_v2, logger=LOGGERS["v2"],
                 )
 
-            # V3: RF + regime filter (same model, skip bad windows)
+            # V3: 44f continuous XGB probability model + simple entry
             if LOGGERS.get("v3") and LOGGERS["v3"].enabled:
-                eng_v3 = PredictionEngine()
-                papers["v3"] = PaperStrategyV3(
-                    slug=market.slug, open_epoch=market.open_epoch,
-                    close_epoch=market.close_epoch,
-                    predictor=eng_v3, logger=LOGGERS["v3"],
-                )
+                try:
+                    eng_v3 = PredictorSec()
+                    papers["v3"] = PaperStrategyV3(
+                        slug=market.slug, open_epoch=market.open_epoch,
+                        close_epoch=market.close_epoch,
+                        predictor=eng_v3, logger=LOGGERS["v3"],
+                    )
+                except Exception as e_v3:
+                    print(f"  [V3] init failed: {e_v3}")
 
-            # V4: RF + late entry + raw ML (enter at t=210, no ensemble)
+            # V4: EV regression model + simple entry
             if LOGGERS.get("v4") and LOGGERS["v4"].enabled:
-                eng_v4 = PredictionEngine()
-                papers["v4"] = PaperStrategyV4(
-                    slug=market.slug, open_epoch=market.open_epoch,
-                    close_epoch=market.close_epoch,
-                    predictor=eng_v4, logger=LOGGERS["v4"],
-                )
+                try:
+                    eng_v4 = EVPredictor()
+                    papers["v4"] = PaperStrategyV4(
+                        slug=market.slug, open_epoch=market.open_epoch,
+                        close_epoch=market.close_epoch,
+                        predictor=eng_v4, logger=LOGGERS["v4"],
+                    )
+                except Exception as e_v4:
+                    print(f"  [V4] init failed: {e_v4}")
+
+            # V5: cheap-side mean-reversion (pure rule, no ML)
+            if LOGGERS.get("v5") and LOGGERS["v5"].enabled:
+                try:
+                    papers["v5"] = PaperStrategyV5(
+                        slug=market.slug, open_epoch=market.open_epoch,
+                        close_epoch=market.close_epoch,
+                        predictor=None, logger=LOGGERS["v5"],
+                    )
+                except Exception as e_v5:
+                    print(f"  [V5] init failed: {e_v5}")
 
             if papers:
                 print(f"  [PAPER] {len(papers)} strategies initialized: "
@@ -749,18 +774,27 @@ async def main():
     # Each writes to its own pair of Supabase tables.
     global LOGGERS
     if PAPER_TRADING_AVAILABLE:
+        # Each version gets its own events-columns whitelist so DecisionLogger
+        # only sends fields that exist in that table. V1/V2 use the legacy
+        # schema (default whitelist + details_json); V3/V4 use clean schemas
+        # from sql/003_recreate_v3_v4_clean.sql (no details_json).
+        from ml.paper_strategy_v3 import V3_EVENTS_COLS
+        from ml.paper_strategy_v4 import V4_EVENTS_COLS
+        from ml.paper_strategy_v5 import V5_EVENTS_COLS
         version_configs = [
-            ("v1", "windows", "events"),
-            ("v2", "v2_windows", "v2_events"),
-            ("v3", "v3_windows", "v3_events"),
-            ("v4", "v4_windows", "v4_events"),
+            ("v1", "windows", "events", None),
+            ("v2", "v2_windows", "v2_events", None),
+            ("v3", "v3_windows", "v3_events", V3_EVENTS_COLS),
+            ("v4", "v4_windows", "v4_events", V4_EVENTS_COLS),
+            ("v5", "v5_windows", "v5_events", V5_EVENTS_COLS),
         ]
-        for ver, win_tbl, evt_tbl in version_configs:
+        for ver, win_tbl, evt_tbl, cols in version_configs:
             try:
                 LOGGERS[ver] = DecisionLogger(
                     windows_table=win_tbl,
                     events_table=evt_tbl,
                     version_label=ver,
+                    events_cols=cols,
                 )
             except Exception as e:
                 print(f"  [PAPER-{ver}] Could not init logger: {e}")

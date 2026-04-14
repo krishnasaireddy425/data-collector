@@ -1,85 +1,184 @@
 """
-V3 Paper Strategy: Regime-gated.
+PaperStrategyV3 — 44-feature continuous XGB probability model (sample-
+weighted + isotonic calibrated). Simple entry rule, no hedging.
 
-Same RF model as V1. Same ensemble, same thresholds. The ONLY
-difference: before the entry phase even runs the model, a regime
-classifier checks if the current window is "tradeable."
+Mirrors the backtest that produced +$28.65/day at threshold 0.90 on the
+170-window test set.
 
-If the window looks choppy, low-volatility, or indecisive, the
-strategy SKIPS the window entirely — no entry, no prediction, no risk.
+Entry rule:
+  At each tick with elapsed_sec in [MIN_ENTRY, MAX_ENTRY]:
+    1. Feed tick into PredictorSec
+    2. Call predict(elapsed_sec) → calibrated P(Up)
+    3. If P(Up) >= CONF_THRESHOLD          → buy UP at up_ask
+       elif (1 - P(Up)) >= CONF_THRESHOLD  → buy DOWN at down_ask
+  Once entered: HOLD to settlement. No exits.
 
-This isolates the question: "Does skipping bad windows improve accuracy?"
-
-Evidence backing this approach:
-  - All 8 losses in the deep research were reversal cases in low-vol windows
-  - Loss BTC vol (30s) avg = 4.72 vs win avg = 7.12
-  - Reddit post: "Start with regime detection, not indicator tuning"
+Supabase tables (schema in sql/003_recreate_v3_v4_clean.sql):
+  v3_windows, v3_events
 """
 
-from .paper_strategy import (
-    PaperStrategy,
-    PREDICTION_TIMES,
-    MIN_ELAPSED,
-    MAX_ENTRY_ELAPSED,
-    MAX_SPREAD,
-    _conf_threshold,
-)
-from .prediction_engine import PredictionEngine
-
-# Regime thresholds — derived from loss analysis
-# (losses had btc_vol_30s < 5.0, book_imbalance < 0.10, leader_flips > 2)
-REGIME_MIN_BTC_VOL_30S = 3.0       # skip if BTC volatility is too low
-REGIME_MAX_LEADER_FLIPS = 4        # skip if market is too choppy
-REGIME_MIN_BOOK_IMBALANCE = 0.08   # skip if market is undecided
+from .predictor_sec import PredictorSec
 
 
-class PaperStrategyV3(PaperStrategy):
-    """V3: Adds regime pre-filter before entry. Everything else = V1."""
+SHARES = 10
+MIN_ENTRY = 60
+MAX_ENTRY = 240
+CONF_THRESHOLD = 0.90
+PREDICT_EVERY_SEC = 1.0
 
-    def _handle_entry_phase(self, elapsed, up_bid, up_ask, down_bid, down_ask, btc_price):
-        """Override: check regime BEFORE running the normal entry logic."""
-        if elapsed < MIN_ELAPSED or elapsed > MAX_ENTRY_ELAPSED:
+# Column whitelist for v3_events — matches sql/003_recreate_v3_v4_clean.sql
+V3_EVENTS_COLS = {
+    "up_bid", "up_ask", "down_bid", "down_ask",
+    "up_spread", "down_spread",
+    "btc_price", "btc_change_from_open",
+    "prob_up", "predicted_side",
+    "action", "side", "shares", "price",
+}
+
+
+class PaperStrategyV3:
+    def __init__(self, slug, open_epoch, close_epoch, predictor: PredictorSec, logger):
+        self.slug = slug
+        self.open_epoch = open_epoch
+        self.close_epoch = close_epoch
+        self.predictor = predictor
+        self.logger = logger
+
+        self.predictor.reset()
+
+        self.entry_side = None
+        self.entry_shares = 0
+        self.entry_price = None
+        self.entry_elapsed_sec = None
+        self.entry_prob_up = None
+        self.entry_confidence = None
+
+        self._window_logged = False
+        self._first_btc = None
+        self._last_predict_t = -999.0
+
+    def on_tick(self, elapsed_sec, up_bid, up_ask, down_bid, down_ask, btc_price):
+        if up_ask is None or down_ask is None:
             return
 
-        # ---- REGIME CHECK (V3 addition) ----
-        # Compute regime features from the predictor's data buffer.
-        # These are the SAME features the model uses, just checked
-        # as a pre-filter before the model even runs.
-        feat = self.predictor._compute_features_safe(elapsed)
-        if feat is not None:
-            btc_vol = feat.get("btc_vol_30s", 0)
-            leader_flips = feat.get("leader_flips_60s", 0)
-            book_imb = abs(feat.get("book_imbalance", 0))
+        if not self._window_logged:
+            self._first_btc = btc_price
+            self.logger.log_window_start(
+                slug=self.slug,
+                open_epoch=self.open_epoch,
+                close_epoch=self.close_epoch,
+                btc_open=btc_price,
+            )
+            self._window_logged = True
 
-            # Skip if regime is unfavorable
-            if btc_vol < REGIME_MIN_BTC_VOL_30S:
-                self._log_skip(
-                    elapsed, up_bid, up_ask, down_bid, down_ask, btc_price,
-                    side=None, ask=None, spread=None,
-                    reason="regime_low_volatility",
-                    spread_passed=None, reversal_passed=None,
-                )
-                return
+        self.predictor.add_tick(
+            elapsed_sec, up_bid or 0.0, up_ask, down_bid or 0.0, down_ask,
+            btc_price or 0.0,
+        )
 
-            if leader_flips > REGIME_MAX_LEADER_FLIPS:
-                self._log_skip(
-                    elapsed, up_bid, up_ask, down_bid, down_ask, btc_price,
-                    side=None, ask=None, spread=None,
-                    reason="regime_choppy",
-                    spread_passed=None, reversal_passed=None,
-                )
-                return
+        if self.entry_side is not None:
+            return
 
-            if book_imb < REGIME_MIN_BOOK_IMBALANCE:
-                self._log_skip(
-                    elapsed, up_bid, up_ask, down_bid, down_ask, btc_price,
-                    side=None, ask=None, spread=None,
-                    reason="regime_indecisive",
-                    spread_passed=None, reversal_passed=None,
-                )
-                return
+        if elapsed_sec < MIN_ENTRY or elapsed_sec > MAX_ENTRY:
+            return
 
-        # ---- PASSED REGIME CHECK — run normal V1 entry logic ----
-        super()._handle_entry_phase(
-            elapsed, up_bid, up_ask, down_bid, down_ask, btc_price
+        if elapsed_sec - self._last_predict_t < PREDICT_EVERY_SEC:
+            return
+        self._last_predict_t = elapsed_sec
+
+        prob_up, _ = self.predictor.predict(elapsed_sec)
+        if prob_up is None:
+            return
+
+        up_spread = (up_ask - (up_bid or 0)) if up_bid else None
+        down_spread = (down_ask - (down_bid or 0)) if down_bid else None
+        btc_change_from_open = (
+            btc_price - self._first_btc if (btc_price and self._first_btc) else None
+        )
+        predicted_side = "up" if prob_up >= 0.5 else "down"
+
+        self.logger.log_event(
+            slug=self.slug,
+            elapsed_sec=elapsed_sec,
+            event_type="prediction",
+            up_bid=up_bid, up_ask=up_ask,
+            down_bid=down_bid, down_ask=down_ask,
+            up_spread=up_spread, down_spread=down_spread,
+            btc_price=btc_price,
+            btc_change_from_open=btc_change_from_open,
+            prob_up=prob_up,
+            predicted_side=predicted_side,
+        )
+
+        book = {
+            "up_bid": up_bid, "up_ask": up_ask,
+            "down_bid": down_bid, "down_ask": down_ask,
+            "up_spread": up_spread, "down_spread": down_spread,
+            "btc_price": btc_price,
+            "btc_change_from_open": btc_change_from_open,
+            "prob_up": prob_up,
+        }
+
+        if prob_up >= CONF_THRESHOLD:
+            self._enter("Up", up_ask, elapsed_sec, prob_up, book)
+        elif (1.0 - prob_up) >= CONF_THRESHOLD:
+            self._enter("Down", down_ask, elapsed_sec, 1.0 - prob_up, book)
+
+    def _enter(self, side, price, elapsed, confidence, book):
+        self.entry_side = side
+        self.entry_shares = SHARES
+        self.entry_price = float(price)
+        self.entry_elapsed_sec = float(elapsed)
+        self.entry_confidence = float(confidence)
+        self.entry_prob_up = float(book["prob_up"])
+        print(f"  [V3] {self.slug} ENTRY {side} x{SHARES} @ ${price:.3f}  "
+              f"t={elapsed:.1f}s  conf={confidence:.3f}")
+        self.logger.log_event(
+            slug=self.slug,
+            elapsed_sec=elapsed,
+            event_type="entry",
+            action="buy",
+            side=side.lower(),
+            shares=SHARES,
+            price=price,
+            up_bid=book["up_bid"], up_ask=book["up_ask"],
+            down_bid=book["down_bid"], down_ask=book["down_ask"],
+            up_spread=book["up_spread"], down_spread=book["down_spread"],
+            btc_price=book["btc_price"],
+            btc_change_from_open=book["btc_change_from_open"],
+            prob_up=book["prob_up"],
+            predicted_side=side.lower(),
+        )
+
+    def settle(self, btc_open=None, btc_close=None, winner=None):
+        winner_norm = (winner or "unknown").capitalize() if winner else "unknown"
+
+        if self.entry_side is None:
+            print(f"  [V3] {self.slug} SKIPPED  winner={winner_norm}")
+            self.logger.log_window_settlement(
+                slug=self.slug,
+                btc_open=btc_open, btc_close=btc_close,
+                winner=winner_norm.lower(),
+                entry_made=False,
+                pnl=0.0,
+            )
+            return
+
+        correct = (self.entry_side == winner_norm)
+        pnl = (SHARES * (1.0 - self.entry_price)) if correct else (-SHARES * self.entry_price)
+        print(f"  [V3] {self.slug} SETTLE  side={self.entry_side}  winner={winner_norm}  "
+              f"{'WIN' if correct else 'LOSS'}  pnl=${pnl:+.2f}")
+        self.logger.log_window_settlement(
+            slug=self.slug,
+            btc_open=btc_open, btc_close=btc_close,
+            winner=winner_norm.lower(),
+            entry_made=True,
+            entry_elapsed_sec=self.entry_elapsed_sec,
+            entry_side=self.entry_side.lower(),
+            entry_price=self.entry_price,
+            entry_shares=self.entry_shares,
+            entry_prob_up=self.entry_prob_up,
+            entry_confidence=self.entry_confidence,
+            correct=correct,
+            pnl=round(pnl, 4),
         )

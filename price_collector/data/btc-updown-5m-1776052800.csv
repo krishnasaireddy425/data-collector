@@ -673,4 +673,4 @@ timestamp,elapsed_sec,up_bid,up_ask,down_bid,down_ask,up_spread,down_spread,btc_
 1776053100.793,300.793,0.99,0.99,0.01,0.01,0.0,0.0,70987.59,1776053099000
 1776053102.078,302.078,0.99,0.99,0.01,0.01,0.0,0.0,70993.24,1776053101000
 
-# RESULT,winner=Down,slug=btc-updown-5m-1776052800,ticks=673
+# RESULT,winner=Up,slug=btc-updown-5m-1776052800,ticks=673
