@@ -1,58 +1,58 @@
 {
   "60": {
-    "wf_accuracy": 0.5638,
-    "wf_test_predictions": 188,
-    "wf_folds": 4,
-    "n_samples": 490,
+    "wf_accuracy": 0.6879,
+    "wf_test_predictions": 487,
+    "wf_folds": 10,
+    "n_samples": 1267,
     "n_features": 50,
-    "xgb_wf_accuracy": 0.5479
+    "xgb_wf_accuracy": 0.6694
   },
   "90": {
-    "wf_accuracy": 0.6489,
-    "wf_test_predictions": 188,
-    "wf_folds": 4,
-    "n_samples": 490,
+    "wf_accuracy": 0.7002,
+    "wf_test_predictions": 487,
+    "wf_folds": 10,
+    "n_samples": 1267,
     "n_features": 50,
-    "xgb_wf_accuracy": 0.6649
+    "xgb_wf_accuracy": 0.6879
   },
   "120": {
-    "wf_accuracy": 0.7021,
-    "wf_test_predictions": 188,
-    "wf_folds": 4,
-    "n_samples": 490,
+    "wf_accuracy": 0.7105,
+    "wf_test_predictions": 487,
+    "wf_folds": 10,
+    "n_samples": 1267,
     "n_features": 50,
-    "xgb_wf_accuracy": 0.6702
+    "xgb_wf_accuracy": 0.6715
   },
   "150": {
-    "wf_accuracy": 0.7394,
-    "wf_test_predictions": 188,
-    "wf_folds": 4,
-    "n_samples": 490,
+    "wf_accuracy": 0.731,
+    "wf_test_predictions": 487,
+    "wf_folds": 10,
+    "n_samples": 1267,
     "n_features": 50,
-    "xgb_wf_accuracy": 0.7287
+    "xgb_wf_accuracy": 0.7023
   },
   "180": {
-    "wf_accuracy": 0.7447,
-    "wf_test_predictions": 188,
-    "wf_folds": 4,
-    "n_samples": 490,
+    "wf_accuracy": 0.7413,
+    "wf_test_predictions": 487,
+    "wf_folds": 10,
+    "n_samples": 1267,
     "n_features": 50,
-    "xgb_wf_accuracy": 0.7447
+    "xgb_wf_accuracy": 0.7269
   },
   "210": {
-    "wf_accuracy": 0.8032,
-    "wf_test_predictions": 188,
-    "wf_folds": 4,
-    "n_samples": 490,
+    "wf_accuracy": 0.8111,
+    "wf_test_predictions": 487,
+    "wf_folds": 10,
+    "n_samples": 1267,
     "n_features": 50,
-    "xgb_wf_accuracy": 0.8298
+    "xgb_wf_accuracy": 0.7947
   },
   "240": {
-    "wf_accuracy": 0.8511,
-    "wf_test_predictions": 188,
-    "wf_folds": 4,
-    "n_samples": 490,
+    "wf_accuracy": 0.848,
+    "wf_test_predictions": 487,
+    "wf_folds": 10,
+    "n_samples": 1267,
     "n_features": 50,
-    "xgb_wf_accuracy": 0.8564
+    "xgb_wf_accuracy": 0.8419
   }
 }
