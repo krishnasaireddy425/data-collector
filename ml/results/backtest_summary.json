@@ -1,0 +1,205 @@
+{
+  "test_window_count": 170,
+  "model_path": "/Users/krishnasaireddypeddinti/data-collector/ml/models/xgb_sec.joblib",
+  "by_threshold": {
+    "0.55": {
+      "n_total": 170,
+      "n_entered": 170,
+      "coverage_pct": 100.0,
+      "accuracy_pct": 67.65,
+      "wins": 115,
+      "losses": 55,
+      "total_pnl": 5.32,
+      "total_shares": 557,
+      "avg_pnl_per_entry": 0.0313,
+      "avg_entry_price": 0.656,
+      "avg_entry_elapsed": 61.4
+    },
+    "0.60": {
+      "n_total": 170,
+      "n_entered": 170,
+      "coverage_pct": 100.0,
+      "accuracy_pct": 65.88,
+      "wins": 112,
+      "losses": 58,
+      "total_pnl": -11.51,
+      "total_shares": 727,
+      "avg_pnl_per_entry": -0.0677,
+      "avg_entry_price": 0.683,
+      "avg_entry_elapsed": 71.5
+    },
+    "0.65": {
+      "n_total": 170,
+      "n_entered": 170,
+      "coverage_pct": 100.0,
+      "accuracy_pct": 66.47,
+      "wins": 113,
+      "losses": 57,
+      "total_pnl": -14.36,
+      "total_shares": 778,
+      "avg_pnl_per_entry": -0.0845,
+      "avg_entry_price": 0.6934,
+      "avg_entry_elapsed": 80.7
+    },
+    "0.70": {
+      "n_total": 170,
+      "n_entered": 168,
+      "coverage_pct": 98.82,
+      "accuracy_pct": 66.67,
+      "wins": 112,
+      "losses": 56,
+      "total_pnl": -43.49,
+      "total_shares": 974,
+      "avg_pnl_per_entry": -0.2589,
+      "avg_entry_price": 0.7218,
+      "avg_entry_elapsed": 92.6
+    },
+    "0.75": {
+      "n_total": 170,
+      "n_entered": 168,
+      "coverage_pct": 98.82,
+      "accuracy_pct": 65.48,
+      "wins": 110,
+      "losses": 58,
+      "total_pnl": -57.94,
+      "total_shares": 974,
+      "avg_pnl_per_entry": -0.3449,
+      "avg_entry_price": 0.7271,
+      "avg_entry_elapsed": 95.9
+    },
+    "0.80": {
+      "n_total": 170,
+      "n_entered": 150,
+      "coverage_pct": 88.24,
+      "accuracy_pct": 74.67,
+      "wins": 112,
+      "losses": 38,
+      "total_pnl": -52.92,
+      "total_shares": 1240,
+      "avg_pnl_per_entry": -0.3528,
+      "avg_entry_price": 0.7912,
+      "avg_entry_elapsed": 121.3
+    },
+    "0.85": {
+      "n_total": 170,
+      "n_entered": 137,
+      "coverage_pct": 80.59,
+      "accuracy_pct": 81.02,
+      "wins": 111,
+      "losses": 26,
+      "total_pnl": -23.52,
+      "total_shares": 1364,
+      "avg_pnl_per_entry": -0.1717,
+      "avg_entry_price": 0.8338,
+      "avg_entry_elapsed": 132.1
+    },
+    "0.90": {
+      "n_total": 170,
+      "n_entered": 113,
+      "coverage_pct": 66.47,
+      "accuracy_pct": 88.5,
+      "wins": 100,
+      "losses": 13,
+      "total_pnl": 14.88,
+      "total_shares": 1356,
+      "avg_pnl_per_entry": 0.1317,
+      "avg_entry_price": 0.874,
+      "avg_entry_elapsed": 145.1
+    },
+    "0.95": {
+      "n_total": 170,
+      "n_entered": 100,
+      "coverage_pct": 58.82,
+      "accuracy_pct": 90.0,
+      "wins": 90,
+      "losses": 10,
+      "total_pnl": 6.0,
+      "total_shares": 1200,
+      "avg_pnl_per_entry": 0.06,
+      "avg_entry_price": 0.895,
+      "avg_entry_elapsed": 150.3
+    }
+  },
+  "calibration_on_peak_prob": [
+    {
+      "conf_range": [
+        0.0,
+        0.1
+      ],
+      "n": 0,
+      "accuracy": null
+    },
+    {
+      "conf_range": [
+        0.1,
+        0.2
+      ],
+      "n": 0,
+      "accuracy": null
+    },
+    {
+      "conf_range": [
+        0.2,
+        0.3
+      ],
+      "n": 0,
+      "accuracy": null
+    },
+    {
+      "conf_range": [
+        0.3,
+        0.4
+      ],
+      "n": 0,
+      "accuracy": null
+    },
+    {
+      "conf_range": [
+        0.4,
+        0.5
+      ],
+      "n": 0,
+      "accuracy": null
+    },
+    {
+      "conf_range": [
+        0.5,
+        0.6
+      ],
+      "n": 82,
+      "accuracy": 62.2
+    },
+    {
+      "conf_range": [
+        0.6,
+        0.7
+      ],
+      "n": 33,
+      "accuracy": 72.73
+    },
+    {
+      "conf_range": [
+        0.7,
+        0.8
+      ],
+      "n": 32,
+      "accuracy": 65.62
+    },
+    {
+      "conf_range": [
+        0.8,
+        0.9
+      ],
+      "n": 15,
+      "accuracy": 73.33
+    },
+    {
+      "conf_range": [
+        0.9,
+        1.0
+      ],
+      "n": 8,
+      "accuracy": 100.0
+    }
+  ]
+}
