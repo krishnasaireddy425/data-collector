@@ -86,9 +86,9 @@ DATA_DIR = REPO / "price_collector" / "data"
 MODEL_DIR = Path(__file__).resolve().parent / "models"
 MODEL_DIR.mkdir(exist_ok=True)
 
-N_TRAIN = 800
-N_TEST = 170
-VAL_TAIL = 80     # last 80 train windows used as early-stopping validation
+N_TRAIN = 1000
+N_TEST = 267
+VAL_TAIL = 100    # last 100 train windows used as early-stopping validation
 
 
 def read_winner(csv_path):

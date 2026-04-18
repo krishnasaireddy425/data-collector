@@ -9,7 +9,8 @@ For every CSV in price_collector/data/, this script:
 It does NOT modify any files. Read-only check.
 
 Usage:
-    python3 scripts/verify_winners.py
+    python3 scripts/verify_winners.py           # check all files
+    python3 scripts/verify_winners.py 500       # skip the first 500 files
 """
 
 import os
@@ -36,9 +37,9 @@ DATA_DIR = ROOT / "price_collector" / "data"
 GAMMA_API = "https://gamma-api.polymarket.com/markets"
 
 # Polite delay between API calls so we don't get rate-limited
-REQUEST_DELAY = 0.05  # 50ms = 20 req/sec
-RETRY_ATTEMPTS = 3
-RETRY_BACKOFF = 1.5
+REQUEST_DELAY = 0.3   # 300ms = ~3 req/sec, safely under Gamma's anonymous limit
+RETRY_ATTEMPTS = 4
+RETRY_BACKOFF = 3.0   # backoff: 3s, 6s, 9s, 12s on 403s
 
 
 # ----------------------------------------------------------------------
@@ -164,8 +165,27 @@ def main():
         print(f"error: no CSV files found in {DATA_DIR}")
         return 1
 
-    print(f"Verifying {len(files)} CSV files against Polymarket Gamma API...")
-    print(f"(50ms delay between requests, {RETRY_ATTEMPTS} retries on failure)")
+    # Optional skip count: python3 verify_winners.py 500 → skip first 500
+    skip = 0
+    if len(sys.argv) > 1:
+        try:
+            skip = max(0, int(sys.argv[1]))
+        except ValueError:
+            print(f"error: skip count must be an integer, got '{sys.argv[1]}'")
+            return 1
+
+    total_all = len(files)
+    if skip >= total_all:
+        print(f"skip={skip} ≥ total files={total_all}, nothing to check")
+        return 0
+    if skip > 0:
+        print(f"Skipping first {skip} files (sorted by slug).")
+        files = files[skip:]
+
+    print(f"Verifying {len(files)} CSV files against Polymarket Gamma API "
+          f"(of {total_all} total)...")
+    print(f"({int(REQUEST_DELAY*1000)}ms delay between requests, "
+          f"{RETRY_ATTEMPTS} retries on failure)")
     print()
 
     mismatches = []
