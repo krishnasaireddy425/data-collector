@@ -1,7 +1,19 @@
 {
-  "generated_at": "2026-04-19T23:20:13.719149+00:00",
-  "count": 2407,
+  "generated_at": "2026-04-19T23:32:45.332431+00:00",
+  "count": 2409,
   "windows": [
+    {
+      "slug": "btc-updown-5m-1776641400",
+      "filename": "btc-updown-5m-1776641400.csv",
+      "winner": null,
+      "epoch": 1776641400
+    },
+    {
+      "slug": "btc-updown-5m-1776641100",
+      "filename": "btc-updown-5m-1776641100.csv",
+      "winner": null,
+      "epoch": 1776641100
+    },
     {
       "slug": "btc-updown-5m-1776640500",
       "filename": "btc-updown-5m-1776640500.csv",
