@@ -27,6 +27,9 @@ import websockets
 # V3: new 44f continuous XGB probability model + simple entry
 # V4: new EV (expected-value) regression model + simple entry
 # V5: pure rule-based cheap-side mean-reversion (no ML)
+# V6: V3 clone with CONF_THRESHOLD=0.70 (aggressive variant)
+# V7: V5 entry + V6 entry + V5 exits at bid when V6 disagrees
+# V8: V5 entry alone + V6 disagreement signal used as exit trigger
 # Imports are best-effort: if ml/ deps are missing, the collector still works.
 try:
     from ml.prediction_engine import PredictionEngine
@@ -38,6 +41,9 @@ try:
     from ml.paper_strategy_v3 import PaperStrategyV3
     from ml.paper_strategy_v4 import PaperStrategyV4
     from ml.paper_strategy_v5 import PaperStrategyV5
+    from ml.paper_strategy_v6 import PaperStrategyV6
+    from ml.paper_strategy_v7 import PaperStrategyV7
+    from ml.paper_strategy_v8 import PaperStrategyV8
     from ml.decision_logger import DecisionLogger
     PAPER_TRADING_AVAILABLE = True
 except Exception as _e:
@@ -643,6 +649,42 @@ async def record_market(market):
                 except Exception as e_v5:
                     print(f"  [V5] init failed: {e_v5}")
 
+            # V6: same 44f XGB as V3 but CONF_THRESHOLD=0.70 (aggressive)
+            if LOGGERS.get("v6") and LOGGERS["v6"].enabled:
+                try:
+                    eng_v6 = PredictorSec()
+                    papers["v6"] = PaperStrategyV6(
+                        slug=market.slug, open_epoch=market.open_epoch,
+                        close_epoch=market.close_epoch,
+                        predictor=eng_v6, logger=LOGGERS["v6"],
+                    )
+                except Exception as e_v6:
+                    print(f"  [V6] init failed: {e_v6}")
+
+            # V7: V5 entry + V6 entry + V5 exits when V6 disagrees
+            if LOGGERS.get("v7") and LOGGERS["v7"].enabled:
+                try:
+                    eng_v7 = PredictorSec()
+                    papers["v7"] = PaperStrategyV7(
+                        slug=market.slug, open_epoch=market.open_epoch,
+                        close_epoch=market.close_epoch,
+                        predictor=eng_v7, logger=LOGGERS["v7"],
+                    )
+                except Exception as e_v7:
+                    print(f"  [V7] init failed: {e_v7}")
+
+            # V8: V5 entry alone + V6 disagree signal used as exit
+            if LOGGERS.get("v8") and LOGGERS["v8"].enabled:
+                try:
+                    eng_v8 = PredictorSec()
+                    papers["v8"] = PaperStrategyV8(
+                        slug=market.slug, open_epoch=market.open_epoch,
+                        close_epoch=market.close_epoch,
+                        predictor=eng_v8, logger=LOGGERS["v8"],
+                    )
+                except Exception as e_v8:
+                    print(f"  [V8] init failed: {e_v8}")
+
             if papers:
                 print(f"  [PAPER] {len(papers)} strategies initialized: "
                       f"{list(papers.keys())}")
@@ -781,12 +823,18 @@ async def main():
         from ml.paper_strategy_v3 import V3_EVENTS_COLS
         from ml.paper_strategy_v4 import V4_EVENTS_COLS
         from ml.paper_strategy_v5 import V5_EVENTS_COLS
+        from ml.paper_strategy_v6 import V6_EVENTS_COLS
+        from ml.paper_strategy_v7 import V7_EVENTS_COLS
+        from ml.paper_strategy_v8 import V8_EVENTS_COLS
         version_configs = [
             ("v1", "windows", "events", None),
             ("v2", "v2_windows", "v2_events", None),
             ("v3", "v3_windows", "v3_events", V3_EVENTS_COLS),
             ("v4", "v4_windows", "v4_events", V4_EVENTS_COLS),
             ("v5", "v5_windows", "v5_events", V5_EVENTS_COLS),
+            ("v6", "v6_windows", "v6_events", V6_EVENTS_COLS),
+            ("v7", "v7_windows", "v7_events", V7_EVENTS_COLS),
+            ("v8", "v8_windows", "v8_events", V8_EVENTS_COLS),
         ]
         for ver, win_tbl, evt_tbl, cols in version_configs:
             try:
