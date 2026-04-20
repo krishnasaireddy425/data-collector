@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>BTC 5m — V3 Paper Trader</title>
+<style>
+:root {
+  --bg-primary: #0d1117;
+  --bg-secondary: #161b22;
+  --bg-tertiary: #21262d;
+  --border: #30363d;
+  --text-primary: #c9d1d9;
+  --text-secondary: #8b949e;
+  --blue: #58a6ff;
+  --green: #3fb950;
+  --red: #f85149;
+  --amber: #e3b341;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  padding: 20px 24px;
+}
+.header {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 16px; border-bottom: 1px solid var(--border); padding-bottom: 12px;
+}
+.header h1 { font-size: 1.25rem; font-weight: 600; }
+.text-muted { color: var(--text-secondary); font-size: 0.875rem; }
+.controls {
+  display: flex; gap: 12px; align-items: center; margin-bottom: 20px; flex-wrap: wrap;
+}
+.btn {
+  background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border);
+  border-radius: 6px; padding: 6px 14px; font-size: 0.875rem; cursor: pointer;
+}
+.btn:hover:not(:disabled) { border-color: var(--blue); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.page-info { color: var(--text-secondary); font-size: 0.875rem; font-family: 'SFMono-Regular', Consolas, monospace; }
+.filter-select {
+  background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border);
+  border-radius: 6px; padding: 6px 12px; font-size: 0.875rem;
+  font-family: 'SFMono-Regular', Consolas, monospace; cursor: pointer;
+}
+.summary-bar {
+  background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px;
+  padding: 10px 16px; margin-bottom: 16px;
+  display: flex; gap: 28px; flex-wrap: wrap;
+  font-size: 0.875rem; font-family: 'SFMono-Regular', Consolas, monospace;
+}
+.summary-bar strong { color: var(--text-primary); }
+.summary-bar .g { color: var(--green); }
+.summary-bar .r { color: var(--red); }
+.summary-bar .a { color: var(--amber); }
+.error-banner {
+  background: rgba(248, 81, 73, 0.15); border: 1px solid var(--red);
+  color: var(--red); padding: 12px 16px; border-radius: 6px; margin-bottom: 16px;
+}
+.loading-state { color: var(--text-secondary); text-align: center; padding: 40px; }
+.graphs-grid { display: flex; flex-direction: column; gap: 24px; }
+.graph-card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.graph-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 12px 16px; border-bottom: 1px solid var(--border); flex-wrap: wrap; gap: 8px;
+}
+.graph-header-left { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.graph-slug {
+  font-family: 'SFMono-Regular', Consolas, monospace;
+  font-size: 0.875rem; font-weight: 600; color: var(--blue);
+}
+.graph-stats { display: flex; gap: 16px; font-size: 0.75rem; color: var(--text-secondary); flex-wrap: wrap; }
+.winner-badge, .entry-badge {
+  font-size: 0.75rem; font-weight: 700; padding: 2px 10px; border-radius: 12px;
+  font-family: 'SFMono-Regular', Consolas, monospace;
+}
+.winner-up { background: rgba(63,185,80,0.15); color: var(--green); }
+.winner-down { background: rgba(248,81,73,0.15); color: var(--red); }
+.entry-correct { background: rgba(63,185,80,0.2); color: var(--green); border: 1px solid var(--green); }
+.entry-wrong   { background: rgba(248,81,73,0.2); color: var(--red);   border: 1px solid var(--red); }
+.entry-skipped { background: rgba(139,148,158,0.15); color: var(--text-secondary); border: 1px dashed var(--border); }
+.graph-canvas { width: 100%; height: 500px; display: block; }
+.card-loading { color: var(--text-secondary); text-align: center; padding: 60px 20px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <h1>BTC 5m — V3 Paper Trader</h1>
+    <span id="total-count" class="text-muted">Loading...</span>
+  </div>
+  <a href="../index.html" class="text-muted" style="text-decoration:none;">← All markets</a>
+</div>
+
+<div id="summary" class="summary-bar" style="display:none;"></div>
+
+<div class="controls">
+  <button id="prev-btn" class="btn">← Prev</button>
+  <span id="page-info" class="page-info">Page 1 of 1</span>
+  <button id="next-btn" class="btn">Next →</button>
+
+  <span style="margin-left: auto;"></span>
+
+  <label class="text-muted">Show:</label>
+  <select id="entry-filter" class="filter-select">
+    <option value="all">All windows</option>
+    <option value="entered">Entered (any)</option>
+    <option value="entered_correct">Entered + Correct</option>
+    <option value="entered_wrong">Entered + Wrong</option>
+    <option value="skipped">Skipped (no entry)</option>
+  </select>
+
+  <label class="text-muted">Side:</label>
+  <select id="side-filter" class="filter-select">
+    <option value="all">All sides</option>
+    <option value="up">V3 entered Up</option>
+    <option value="down">V3 entered Down</option>
+  </select>
+
+  <label class="text-muted">Sort:</label>
+  <select id="sort-order" class="filter-select">
+    <option value="desc">Newest first</option>
+    <option value="asc">Oldest first</option>
+  </select>
+</div>
+
+<div id="error-container"></div>
+<div id="loading" class="loading-state">Loading v3 windows...</div>
+<div id="graphs-grid" class="graphs-grid"></div>
+
+<script>
+const PAGE_SIZE = 50;
+const INDEX_PATH = "../index.json";
+const V3_CSV_PATH = "../../analysis/supabase_export/v3_windows_rows.csv";
+const DATA_BASE = "../../price_collector/data/";
+
+let allWindows = [];        // merged: index.json meta + v3 entry record by slug
+let filteredWindows = [];
+let currentPage = 0;
+let currentRenderToken = 0;
+
+// ---------------------------------------------------------------
+// CSV parsing
+// ---------------------------------------------------------------
+
+function parseCsvGeneric(text) {
+  const lines = text.split("\n");
+  const out = [];
+  let header = null;
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line) continue;
+    if (line.startsWith("#")) continue;
+    const parts = line.split(",");
+    if (!header) { header = parts.map(s => s.trim()); continue; }
+    const row = {};
+    for (let i = 0; i < header.length; i++) row[header[i]] = parts[i];
+    out.push(row);
+  }
+  return { header, rows: out };
+}
+
+function parseTicks(text) {
+  const lines = text.split("\n");
+  const ticks = [];
+  let header = null;
+  let colIdx = {};
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    const parts = line.split(",");
+    if (!header) {
+      header = parts.map(s => s.trim());
+      header.forEach((name, i) => { colIdx[name] = i; });
+      if (colIdx["elapsed_sec"] === undefined) return [];
+      continue;
+    }
+    const elapsed = parseFloat(parts[colIdx["elapsed_sec"]]);
+    if (!Number.isFinite(elapsed)) continue;
+    const upAsk = parseFloat(parts[colIdx["up_ask"]]);
+    const upBid = parseFloat(parts[colIdx["up_bid"]]);
+    const downAsk = parseFloat(parts[colIdx["down_ask"]]);
+    const downBid = parseFloat(parts[colIdx["down_bid"]]);
+    const btc = parseFloat(parts[colIdx["btc_price"]]);
+    let upMid = null, downMid = null;
+    if (Number.isFinite(upAsk) && Number.isFinite(upBid)) upMid = (upAsk + upBid) / 2;
+    else if (Number.isFinite(upAsk)) upMid = upAsk;
+    if (Number.isFinite(downAsk) && Number.isFinite(downBid)) downMid = (downAsk + downBid) / 2;
+    else if (Number.isFinite(downAsk)) downMid = downAsk;
+    ticks.push({
+      elapsed,
+      up_price: Number.isFinite(upMid) ? upMid : null,
+      down_price: Number.isFinite(downMid) ? downMid : null,
+      btc_price: Number.isFinite(btc) ? btc : null,
+    });
+  }
+  return ticks;
+}
+
+// ---------------------------------------------------------------
+// Chart drawing with V3 entry overlay
+// ---------------------------------------------------------------
+
+function drawChart(canvas, ticks, v3) {
+  const ctx = canvas.getContext("2d");
+  const dpr = window.devicePixelRatio || 1;
+  const width = canvas.clientWidth;
+  const height = canvas.clientHeight;
+  canvas.width = width * dpr;
+  canvas.height = height * dpr;
+  ctx.scale(dpr, dpr);
+
+  const pad = { top: 20, right: 60, bottom: 35, left: 35 };
+  const cw = width - pad.left - pad.right;
+  const ch = height - pad.top - pad.bottom;
+
+  ctx.fillStyle = "#161b22";
+  ctx.fillRect(0, 0, width, height);
+
+  if (!ticks || ticks.length === 0) return;
+
+  const minE = 0, maxE = 300;
+  const rangeE = maxE - minE;
+  const toX = (e) => pad.left + ((e - minE) / rangeE) * cw;
+  const toY = (p) => pad.top + (1 - p) * ch;
+
+  // Grid
+  ctx.strokeStyle = "#30363d";
+  ctx.lineWidth = 0.5;
+  for (let c = 0; c <= 100; c += 5) {
+    const y = toY(c / 100);
+    ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(pad.left + cw, y); ctx.stroke();
+  }
+
+  // 50¢ line
+  ctx.strokeStyle = "#484f58"; ctx.lineWidth = 1.5; ctx.setLineDash([6, 4]);
+  const midY = toY(0.5);
+  ctx.beginPath(); ctx.moveTo(pad.left, midY); ctx.lineTo(pad.left + cw, midY); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // UP odds line
+  ctx.strokeStyle = "#58a6ff"; ctx.lineWidth = 2;
+  ctx.beginPath();
+  let started = false;
+  for (const t of ticks) {
+    if (t.up_price == null) continue;
+    const x = toX(t.elapsed); const y = toY(t.up_price);
+    if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+
+  // BTC price (right Y-axis)
+  const btcPrices = ticks.map(t => t.btc_price).filter(v => v != null);
+  if (btcPrices.length > 0) {
+    const btcOpen = btcPrices[0];
+    let maxDev = 0;
+    for (const p of btcPrices) maxDev = Math.max(maxDev, Math.abs(p - btcOpen));
+    if (maxDev === 0) maxDev = 1;
+    const halfRange = maxDev * 1.1;
+    const btcLow = btcOpen - halfRange, btcHigh = btcOpen + halfRange;
+    const toBtcY = (p) => pad.top + ((btcHigh - p) / (btcHigh - btcLow)) * ch;
+    ctx.strokeStyle = "#e3b341"; ctx.lineWidth = 1.5; ctx.globalAlpha = 0.7;
+    ctx.beginPath();
+    let btcStarted = false;
+    for (const t of ticks) {
+      if (t.btc_price == null) continue;
+      const x = toX(t.elapsed); const y = toBtcY(t.btc_price);
+      if (!btcStarted) { ctx.moveTo(x, y); btcStarted = true; } else ctx.lineTo(x, y);
+    }
+    ctx.stroke(); ctx.globalAlpha = 1.0;
+
+    ctx.fillStyle = "#e3b341";
+    ctx.font = "10px -apple-system, sans-serif";
+    ctx.textAlign = "left"; ctx.textBaseline = "middle";
+    const btcStep = (btcHigh - btcLow) / 4;
+    for (let i = 0; i <= 4; i++) {
+      const val = btcLow + btcStep * i;
+      ctx.fillText(`$${Math.round(val).toLocaleString()}`, pad.left + cw + 4, toBtcY(val));
+    }
+  }
+
+  // Y-axis labels
+  ctx.fillStyle = "#8b949e"; ctx.font = "11px -apple-system, sans-serif";
+  ctx.textAlign = "right"; ctx.textBaseline = "middle";
+  for (let c = 0; c <= 100; c += 5) ctx.fillText(c, pad.left - 6, toY(c / 100));
+  ctx.textAlign = "center"; ctx.textBaseline = "top";
+  for (let e = 0; e <= 300; e += 30) ctx.fillText(`${e}s`, toX(e), pad.top + ch + 8);
+  ctx.fillText("Elapsed (seconds)", pad.left + cw / 2, height - 4);
+
+  // Legend
+  ctx.textAlign = "left"; ctx.textBaseline = "top";
+  ctx.strokeStyle = "#58a6ff"; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(pad.left + 8, pad.top + 6); ctx.lineTo(pad.left + 28, pad.top + 6); ctx.stroke();
+  ctx.fillStyle = "#58a6ff"; ctx.font = "12px -apple-system, sans-serif";
+  ctx.fillText("UP odds", pad.left + 32, pad.top);
+  ctx.strokeStyle = "#e3b341"; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(pad.left + 95, pad.top + 6); ctx.lineTo(pad.left + 115, pad.top + 6); ctx.stroke();
+  ctx.fillStyle = "#e3b341"; ctx.fillText("BTC", pad.left + 119, pad.top);
+
+  // --------- V3 entry marker ---------
+  if (v3 && v3.entry_made && Number.isFinite(v3.entry_elapsed_sec) &&
+      Number.isFinite(v3.entry_price)) {
+    const t = v3.entry_elapsed_sec;
+    const side = (v3.entry_side || "").toLowerCase();
+    // Plot on the UP-odds Y scale:
+    //   if V3 bought Up at price P  → marker at Y = P
+    //   if V3 bought Down at P      → implied UP odds = 1 - P, marker at Y = 1 - P
+    const yVal = side === "down" ? (1 - v3.entry_price) : v3.entry_price;
+    const x = toX(t), y = toY(yVal);
+    const correct = v3.correct === true || v3.correct === "true";
+    const wrong = v3.correct === false || v3.correct === "false";
+    const color = correct ? "#3fb950" : (wrong ? "#f85149" : "#e3b341");
+
+    // Vertical guide line
+    ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.globalAlpha = 0.45;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath(); ctx.moveTo(x, pad.top); ctx.lineTo(x, pad.top + ch); ctx.stroke();
+    ctx.setLineDash([]); ctx.globalAlpha = 1.0;
+
+    // Outer ring
+    ctx.strokeStyle = color; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(x, y, 9, 0, Math.PI * 2); ctx.stroke();
+    // Inner dot
+    ctx.fillStyle = color;
+    ctx.beginPath(); ctx.arc(x, y, 4, 0, Math.PI * 2); ctx.fill();
+
+    // Label
+    const sideSym = side === "up" ? "▲" : "▼";
+    const label = `V3 ${sideSym}${side.toUpperCase()} @ $${v3.entry_price.toFixed(3)}  t=${Math.round(t)}s`;
+    const outcomeLabel = correct ? "✓ WIN" : (wrong ? "✗ LOSS" : "?");
+    const pnlLabel = Number.isFinite(v3.pnl)
+      ? `${v3.pnl >= 0 ? "+" : ""}$${v3.pnl.toFixed(2)}` : "";
+    ctx.font = "11px -apple-system, sans-serif";
+    ctx.textAlign = "left"; ctx.textBaseline = "bottom";
+    ctx.fillStyle = "#0d1117";
+    const fullLabel = `${label}  ${outcomeLabel} ${pnlLabel}`;
+    const labelW = ctx.measureText(fullLabel).width;
+    const lx = Math.min(x + 12, pad.left + cw - labelW - 4);
+    const ly = Math.max(y - 10, pad.top + 14);
+    ctx.fillRect(lx - 4, ly - 12, labelW + 8, 16);
+    ctx.fillStyle = color;
+    ctx.fillText(fullLabel, lx, ly);
+  }
+}
+
+// ---------------------------------------------------------------
+// Card rendering
+// ---------------------------------------------------------------
+
+function entryBadge(v3) {
+  if (!v3 || !v3.entry_made) return `<span class="entry-badge entry-skipped">SKIP</span>`;
+  const side = (v3.entry_side || "").toUpperCase();
+  if (v3.correct === true) {
+    return `<span class="entry-badge entry-correct">V3 ${side} ✓ +$${(v3.pnl||0).toFixed(2)}</span>`;
+  }
+  if (v3.correct === false) {
+    return `<span class="entry-badge entry-wrong">V3 ${side} ✗ -$${Math.abs(v3.pnl||0).toFixed(2)}</span>`;
+  }
+  return `<span class="entry-badge entry-skipped">V3 ${side} (?)</span>`;
+}
+
+function buildCardSkeleton(meta) {
+  const card = document.createElement("div");
+  card.className = "graph-card";
+  const winner = (meta.winner || "").toLowerCase();
+  let winBadge = "";
+  if (winner.startsWith("up")) winBadge = `<span class="winner-badge winner-up">▲ UP Won</span>`;
+  else if (winner.startsWith("down")) winBadge = `<span class="winner-badge winner-down">▼ DOWN Won</span>`;
+  card.innerHTML = `
+    <div class="graph-header">
+      <div class="graph-header-left">
+        <span class="graph-slug">${meta.slug}</span>
+        ${winBadge}
+        ${entryBadge(meta.v3)}
+      </div>
+      <div class="graph-stats" data-stats><span>Loading...</span></div>
+    </div>
+    <div class="card-loading" data-loading>Loading chart...</div>
+    <canvas class="graph-canvas" data-canvas style="display:none"></canvas>
+  `;
+  return card;
+}
+
+function fillCardWithData(card, ticks, v3) {
+  const ups = ticks.map(t => t.up_price).filter(v => v != null);
+  const firstUp = ups.length ? ups[0] : null;
+  const lastUp = ups.length ? ups[ups.length - 1] : null;
+  const fmt = (v) => v == null ? "—" : v.toFixed(3);
+
+  let v3stat = "";
+  if (v3 && v3.entry_made) {
+    v3stat = `<span>V3 entry: $${(v3.entry_price||0).toFixed(3)} @ ${Math.round(v3.entry_elapsed_sec)}s` +
+             (Number.isFinite(v3.entry_prob_up) ? ` (prob_up=${v3.entry_prob_up.toFixed(3)})` : "") + `</span>`;
+  }
+  card.querySelector("[data-stats]").innerHTML = `
+    <span>Start: ${fmt(firstUp)}</span>
+    <span>End: ${fmt(lastUp)}</span>
+    <span>${ticks.length} ticks</span>
+    ${v3stat}
+  `;
+  card.querySelector("[data-loading]").style.display = "none";
+  const canvas = card.querySelector("[data-canvas]");
+  canvas.style.display = "block";
+  requestAnimationFrame(() => drawChart(canvas, ticks, v3));
+}
+
+function fillCardWithError(card, message) {
+  card.querySelector("[data-loading]").textContent = `Error: ${message}`;
+}
+
+// ---------------------------------------------------------------
+// Page rendering
+// ---------------------------------------------------------------
+
+async function fetchText(path) {
+  const resp = await fetch(path);
+  if (!resp.ok) throw new Error(`Fetch ${path} → HTTP ${resp.status}`);
+  return await resp.text();
+}
+
+async function renderPage() {
+  const grid = document.getElementById("graphs-grid");
+  grid.innerHTML = "";
+  const token = ++currentRenderToken;
+
+  const start = currentPage * PAGE_SIZE;
+  const end = Math.min(start + PAGE_SIZE, filteredWindows.length);
+  const slice = filteredWindows.slice(start, end);
+  const totalPages = Math.max(1, Math.ceil(filteredWindows.length / PAGE_SIZE));
+  document.getElementById("page-info").textContent =
+    `Page ${currentPage + 1} of ${totalPages}  (${start + 1}-${end} of ${filteredWindows.length})`;
+  document.getElementById("prev-btn").disabled = currentPage === 0;
+  document.getElementById("next-btn").disabled = currentPage >= totalPages - 1;
+
+  const cards = slice.map(meta => {
+    const card = buildCardSkeleton(meta);
+    grid.appendChild(card);
+    return { meta, card };
+  });
+
+  const BATCH = 8;
+  for (let i = 0; i < cards.length; i += BATCH) {
+    if (token !== currentRenderToken) return;
+    const chunk = cards.slice(i, i + BATCH);
+    await Promise.all(chunk.map(async ({ meta, card }) => {
+      try {
+        const text = await fetchText(DATA_BASE + meta.filename);
+        if (token !== currentRenderToken) return;
+        const ticks = parseTicks(text);
+        if (ticks.length === 0) { fillCardWithError(card, "no ticks"); return; }
+        fillCardWithData(card, ticks, meta.v3);
+      } catch (e) {
+        if (token !== currentRenderToken) return;
+        fillCardWithError(card, e.message);
+      }
+    }));
+  }
+}
+
+function applyFilters() {
+  const ef = document.getElementById("entry-filter").value;
+  const sf = document.getElementById("side-filter").value;
+  const sortOrder = document.getElementById("sort-order").value;
+
+  filteredWindows = allWindows.filter(w => {
+    const v3 = w.v3;
+    // Entry-status filter
+    if (ef === "entered" && !(v3 && v3.entry_made)) return false;
+    if (ef === "entered_correct" && !(v3 && v3.entry_made && v3.correct === true)) return false;
+    if (ef === "entered_wrong" && !(v3 && v3.entry_made && v3.correct === false)) return false;
+    if (ef === "skipped" && (v3 && v3.entry_made)) return false;
+    // Side filter
+    if (sf !== "all") {
+      if (!(v3 && v3.entry_made)) return false;
+      if ((v3.entry_side || "").toLowerCase() !== sf) return false;
+    }
+    return true;
+  });
+
+  filteredWindows.sort((a, b) => {
+    const cmp = (a.epoch || 0) - (b.epoch || 0);
+    return sortOrder === "desc" ? -cmp : cmp;
+  });
+
+  // Summary
+  updateSummary();
+
+  currentPage = 0;
+  renderPage();
+}
+
+function updateSummary() {
+  const n = filteredWindows.length;
+  let entered = 0, wins = 0, losses = 0, pnl = 0, up = 0, down = 0;
+  for (const w of filteredWindows) {
+    const v3 = w.v3;
+    if (!v3 || !v3.entry_made) continue;
+    entered++;
+    if (v3.correct === true) wins++;
+    else if (v3.correct === false) losses++;
+    if (Number.isFinite(v3.pnl)) pnl += v3.pnl;
+    if ((v3.entry_side || "").toLowerCase() === "up") up++;
+    else if ((v3.entry_side || "").toLowerCase() === "down") down++;
+  }
+  const bar = document.getElementById("summary");
+  const acc = entered > 0 ? (wins / entered * 100).toFixed(1) + "%" : "—";
+  const pnlStr = (pnl >= 0 ? "+" : "") + "$" + pnl.toFixed(2);
+  const pnlClass = pnl >= 0 ? "g" : "r";
+  bar.innerHTML = `
+    <span><strong>${n}</strong> windows in view</span>
+    <span><strong>${entered}</strong> entries</span>
+    <span class="g">${wins} wins</span>
+    <span class="r">${losses} losses</span>
+    <span>accuracy: <strong>${acc}</strong></span>
+    <span class="${pnlClass}">PnL: <strong>${pnlStr}</strong></span>
+    <span class="a">Up: ${up}  Down: ${down}</span>
+  `;
+  bar.style.display = "flex";
+}
+
+// ---------------------------------------------------------------
+// Boot: load index.json AND v3_windows CSV, merge by slug
+// ---------------------------------------------------------------
+
+function parseV3Csv(text) {
+  const { rows } = parseCsvGeneric(text);
+  const map = new Map();
+  for (const r of rows) {
+    const slug = r["slug"];
+    if (!slug) continue;
+    const numOrNull = (v) => {
+      if (v == null || v === "") return null;
+      const n = parseFloat(v);
+      return Number.isFinite(n) ? n : null;
+    };
+    const boolOrNull = (v) => {
+      if (v === "true") return true;
+      if (v === "false") return false;
+      return null;
+    };
+    map.set(slug, {
+      slug,
+      winner: r["winner"],
+      entry_made: r["entry_made"] === "true",
+      entry_elapsed_sec: numOrNull(r["entry_elapsed_sec"]),
+      entry_side: r["entry_side"] || null,
+      entry_price: numOrNull(r["entry_price"]),
+      entry_shares: numOrNull(r["entry_shares"]),
+      entry_prob_up: numOrNull(r["entry_prob_up"]),
+      entry_confidence: numOrNull(r["entry_confidence"]),
+      correct: boolOrNull(r["correct"]),
+      pnl: numOrNull(r["pnl"]),
+    });
+  }
+  return map;
+}
+
+(async () => {
+  try {
+    const [indexResp, v3Text] = await Promise.all([
+      fetch(INDEX_PATH).then(r => {
+        if (!r.ok) throw new Error(`index.json HTTP ${r.status}`);
+        return r.json();
+      }),
+      fetch(V3_CSV_PATH).then(r => {
+        if (!r.ok) throw new Error(`v3_windows_rows.csv HTTP ${r.status}`);
+        return r.text();
+      }),
+    ]);
+
+    const v3Map = parseV3Csv(v3Text);
+    const indexWindows = indexResp.windows || [];
+
+    // Merge: attach v3 record by slug. Windows without a v3 row stay (v3=null).
+    allWindows = indexWindows.map(w => ({ ...w, v3: v3Map.get(w.slug) || null }));
+
+    let inV3 = 0;
+    for (const w of allWindows) if (w.v3) inV3++;
+
+    document.getElementById("loading").style.display = "none";
+    document.getElementById("total-count").textContent =
+      `${allWindows.length} markets indexed — ${inV3} with V3 records (${v3Map.size} total V3 rows)`;
+    applyFilters();
+  } catch (e) {
+    document.getElementById("loading").style.display = "none";
+    const err = document.createElement("div");
+    err.className = "error-banner";
+    err.textContent = `Error: ${e.message}`;
+    document.getElementById("error-container").appendChild(err);
+  }
+})();
+
+document.getElementById("prev-btn").addEventListener("click", () => {
+  if (currentPage > 0) { currentPage--; renderPage(); }
+});
+document.getElementById("next-btn").addEventListener("click", () => {
+  const totalPages = Math.ceil(filteredWindows.length / PAGE_SIZE);
+  if (currentPage < totalPages - 1) { currentPage++; renderPage(); }
+});
+document.getElementById("entry-filter").addEventListener("change", applyFilters);
+document.getElementById("side-filter").addEventListener("change", applyFilters);
+document.getElementById("sort-order").addEventListener("change", applyFilters);
+</script>
+
+</body>
+</html>
