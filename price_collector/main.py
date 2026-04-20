@@ -30,6 +30,8 @@ import websockets
 # V6: V3 clone with CONF_THRESHOLD=0.70 (aggressive variant)
 # V7: V5 entry + V6 entry + V5 exits at bid when V6 disagrees
 # V8: V5 entry alone + V6 disagreement signal used as exit trigger
+# V4+: V4's EV regression + V3 probability floor (skip entries where V3's
+#      prob on V4's chosen side < 0.30, data-validated to save ~$50/week)
 # Imports are best-effort: if ml/ deps are missing, the collector still works.
 try:
     from ml.prediction_engine import PredictionEngine
@@ -44,6 +46,8 @@ try:
     from ml.paper_strategy_v6 import PaperStrategyV6
     from ml.paper_strategy_v7 import PaperStrategyV7
     from ml.paper_strategy_v8 import PaperStrategyV8
+    from ml.paper_strategy_v4_plus import PaperStrategyV4Plus
+    from ml.paper_strategy_v9 import PaperStrategyV9
     from ml.decision_logger import DecisionLogger
     PAPER_TRADING_AVAILABLE = True
 except Exception as _e:
@@ -685,6 +689,34 @@ async def record_market(market):
                 except Exception as e_v8:
                     print(f"  [V8] init failed: {e_v8}")
 
+            # V4+: V4's EV regression + V3 probability floor (skip <0.30)
+            # Needs BOTH EVPredictor (for V4 signal) and PredictorSec (for V3 prob).
+            if LOGGERS.get("v4plus") and LOGGERS["v4plus"].enabled:
+                try:
+                    eng_v4plus_ev = EVPredictor()
+                    eng_v4plus_v3 = PredictorSec()
+                    papers["v4plus"] = PaperStrategyV4Plus(
+                        slug=market.slug, open_epoch=market.open_epoch,
+                        close_epoch=market.close_epoch,
+                        ev_predictor=eng_v4plus_ev,
+                        v3_predictor=eng_v4plus_v3,
+                        logger=LOGGERS["v4plus"],
+                    )
+                except Exception as e_v4plus:
+                    print(f"  [V4+] init failed: {e_v4plus}")
+
+            # V9: V4 with stricter EV threshold (0.04). No V3 filter.
+            if LOGGERS.get("v9") and LOGGERS["v9"].enabled:
+                try:
+                    eng_v9 = EVPredictor()
+                    papers["v9"] = PaperStrategyV9(
+                        slug=market.slug, open_epoch=market.open_epoch,
+                        close_epoch=market.close_epoch,
+                        predictor=eng_v9, logger=LOGGERS["v9"],
+                    )
+                except Exception as e_v9:
+                    print(f"  [V9] init failed: {e_v9}")
+
             if papers:
                 print(f"  [PAPER] {len(papers)} strategies initialized: "
                       f"{list(papers.keys())}")
@@ -826,6 +858,8 @@ async def main():
         from ml.paper_strategy_v6 import V6_EVENTS_COLS
         from ml.paper_strategy_v7 import V7_EVENTS_COLS
         from ml.paper_strategy_v8 import V8_EVENTS_COLS
+        from ml.paper_strategy_v4_plus import V4PLUS_EVENTS_COLS
+        from ml.paper_strategy_v9 import V9_EVENTS_COLS
         version_configs = [
             ("v1", "windows", "events", None),
             ("v2", "v2_windows", "v2_events", None),
@@ -835,6 +869,8 @@ async def main():
             ("v6", "v6_windows", "v6_events", V6_EVENTS_COLS),
             ("v7", "v7_windows", "v7_events", V7_EVENTS_COLS),
             ("v8", "v8_windows", "v8_events", V8_EVENTS_COLS),
+            ("v4plus", "v4plus_windows", "v4plus_events", V4PLUS_EVENTS_COLS),
+            ("v9", "v9_windows", "v9_events", V9_EVENTS_COLS),
         ]
         for ver, win_tbl, evt_tbl, cols in version_configs:
             try:
