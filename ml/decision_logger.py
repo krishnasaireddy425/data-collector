@@ -151,6 +151,8 @@ class DecisionLogger:
         Optional fields are passed through as columns. Unknown keys go
         into the details_json blob.
         """
+        # Per-tick event logging disabled — only window summaries are stored.
+        return
         if not self.enabled:
             return
 

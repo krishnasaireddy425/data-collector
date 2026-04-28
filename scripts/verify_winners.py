@@ -12,6 +12,7 @@ Usage:
     python3 scripts/verify_winners.py
 """
 
+import argparse
 import os
 import re
 import ssl
@@ -155,16 +156,29 @@ def fetch_polymarket_winner(slug):
 # ----------------------------------------------------------------------
 
 def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--reverse", action="store_true",
+                    help="Walk newest → oldest (default: oldest → newest)")
+    ap.add_argument("--limit", type=int, default=None,
+                    help="Only check the first N files AFTER sorting/reversing")
+    args = ap.parse_args()
+
     if not DATA_DIR.exists():
         print(f"error: data directory {DATA_DIR} does not exist")
         return 1
 
-    files = sorted(DATA_DIR.glob("btc-updown-5m-*.csv"))
-    if not files:
+    all_files = sorted(DATA_DIR.glob("btc-updown-5m-*.csv"))
+    if not all_files:
         print(f"error: no CSV files found in {DATA_DIR}")
         return 1
 
-    print(f"Verifying {len(files)} CSV files against Polymarket Gamma API...")
+    if args.reverse:
+        all_files = list(reversed(all_files))
+    files = all_files[:args.limit] if args.limit else all_files
+
+    direction = "newest → oldest" if args.reverse else "oldest → newest"
+    print(f"Verifying {len(files)} of {len(all_files)} CSV files "
+          f"({direction}) against Polymarket Gamma API...")
     print(f"(50ms delay between requests, {RETRY_ATTEMPTS} retries on failure)")
     print()
 
