@@ -1,7 +1,91 @@
 {
-  "generated_at": "2026-04-28T02:55:04.383892+00:00",
-  "count": 4489,
+  "generated_at": "2026-04-28T04:06:58.684702+00:00",
+  "count": 4503,
   "windows": [
+    {
+      "slug": "btc-updown-5m-1777349100",
+      "filename": "btc-updown-5m-1777349100.csv",
+      "winner": null,
+      "epoch": 1777349100
+    },
+    {
+      "slug": "btc-updown-5m-1777348800",
+      "filename": "btc-updown-5m-1777348800.csv",
+      "winner": null,
+      "epoch": 1777348800
+    },
+    {
+      "slug": "btc-updown-5m-1777348500",
+      "filename": "btc-updown-5m-1777348500.csv",
+      "winner": null,
+      "epoch": 1777348500
+    },
+    {
+      "slug": "btc-updown-5m-1777348200",
+      "filename": "btc-updown-5m-1777348200.csv",
+      "winner": null,
+      "epoch": 1777348200
+    },
+    {
+      "slug": "btc-updown-5m-1777347900",
+      "filename": "btc-updown-5m-1777347900.csv",
+      "winner": null,
+      "epoch": 1777347900
+    },
+    {
+      "slug": "btc-updown-5m-1777347600",
+      "filename": "btc-updown-5m-1777347600.csv",
+      "winner": null,
+      "epoch": 1777347600
+    },
+    {
+      "slug": "btc-updown-5m-1777347300",
+      "filename": "btc-updown-5m-1777347300.csv",
+      "winner": null,
+      "epoch": 1777347300
+    },
+    {
+      "slug": "btc-updown-5m-1777347000",
+      "filename": "btc-updown-5m-1777347000.csv",
+      "winner": null,
+      "epoch": 1777347000
+    },
+    {
+      "slug": "btc-updown-5m-1777346700",
+      "filename": "btc-updown-5m-1777346700.csv",
+      "winner": null,
+      "epoch": 1777346700
+    },
+    {
+      "slug": "btc-updown-5m-1777346400",
+      "filename": "btc-updown-5m-1777346400.csv",
+      "winner": null,
+      "epoch": 1777346400
+    },
+    {
+      "slug": "btc-updown-5m-1777346100",
+      "filename": "btc-updown-5m-1777346100.csv",
+      "winner": null,
+      "epoch": 1777346100
+    },
+    {
+      "slug": "btc-updown-5m-1777345800",
+      "filename": "btc-updown-5m-1777345800.csv",
+      "winner": null,
+      "epoch": 1777345800
+    },
+    {
+      "slug": "btc-updown-5m-1777345500",
+      "filename": "btc-updown-5m-1777345500.csv",
+      "winner": null,
+      "epoch": 1777345500
+    },
+    {
+      "slug": "btc-updown-5m-1777345200",
+      "filename": "btc-updown-5m-1777345200.csv",
+      "winner": null,
+      "epoch": 1777345200
+    },
     {
       "slug": "btc-updown-5m-1777344600",
       "filename": "btc-updown-5m-1777344600.csv",
